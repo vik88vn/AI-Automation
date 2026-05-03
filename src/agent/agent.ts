@@ -118,21 +118,19 @@ const TOOL_DEFINITIONS: ToolDef[] = [
       },
       required: ["domain", "data", "reason"],
     },
-  }
-  // Add this to your tool definitions
-{
-  name: "handle_authentication",
-  description: "Call this when you encounter a login wall, password field, or MFA prompt. It will pause execution and request secure credentials from the user.",
-  input_schema: {
-    type: "object",
-    properties: {
-      reason: { type: "string", description: "Why is auth needed? (e.g., 'Encountered login form', 'MFA required')" },
-      fields: { type: "array", items: { type: "string" }, description: "List of fields detected (e.g., ['username', 'password', 'otp'])" }
+  },
+  {
+    name: "handle_authentication",
+    description: "Call this when you encounter a login wall, password field, or MFA prompt. It will pause execution and request secure credentials from the user.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reason: { type: "string", description: "Why is auth needed? (e.g., 'Encountered login form', 'MFA required')" },
+        fields: { type: "array", items: { type: "string" }, description: "List of fields detected (e.g., ['username', 'password', 'otp'])" },
+      },
+      required: ["reason"],
     },
-    required: ["reason"]
-  }
-}
-
+  },
   {
     name: "add_test",
     description: "Append a new structured test case to the queue.",
@@ -227,7 +225,7 @@ export class DeepAgent {
   private readonly state: AgentState;
   private readonly browser: AgentBrowser;
   private readonly events: AgentEvent[] = [];
-  private readonly onEvent?: (e: AgentEvent) => void;
+  private onEvent?: (e: AgentEvent) => void;
   private step = 0;
   private extractedUrls = new Set<string>();
   private reportDir: string;

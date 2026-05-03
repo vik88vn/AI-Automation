@@ -191,7 +191,10 @@ export type AgentEventType =
   | "analysis_complete"
   | "log"
   | "run_end"
-  | "run_error";
+  | "run_error"
+  | "auth_required"
+  | "auth_response"
+  | "auth_submitted";
 
 export interface AgentEvent {
   type: AgentEventType;
