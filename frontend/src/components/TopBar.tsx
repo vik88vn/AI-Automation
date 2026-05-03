@@ -1,9 +1,13 @@
-import { Play, Square, Globe } from "lucide-react";
+import { Play, Square, Globe, Settings as SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/store/useStore";
 import { useSessionStore } from "@/store/useSessionStore";
 import { cn } from "@/lib/utils";
 import { RunStatuses, type RunStatus } from "@/types";
+
+interface Props {
+  onOpenSettings: () => void;
+}
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   [RunStatuses.Running]: "Running",
@@ -19,7 +23,7 @@ const STATUS_DOT: Record<RunStatus, string> = {
   [RunStatuses.Queued]: "bg-zinc-500",
 };
 
-export function TopBar() {
+export function TopBar({ onOpenSettings }: Props) {
   const status = useStore((s) => s.status);
   const url = useStore((s) => s.url);
   // Lifecycle now goes through the session store. Start = create a new run
@@ -75,6 +79,15 @@ export function TopBar() {
               Start
             </Button>
           )}
+          <Button
+            variant="icon"
+            size="icon"
+            onClick={onOpenSettings}
+            title="Settings (provider, API keys, model)"
+            aria-label="Open settings"
+          >
+            <SettingsIcon className="size-4" />
+          </Button>
         </div>
       </div>
     </div>

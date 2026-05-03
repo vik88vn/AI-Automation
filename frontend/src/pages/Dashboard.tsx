@@ -7,6 +7,8 @@ import { TestTable } from "@/components/TestTable";
 import { BugList } from "@/components/BugList";
 import { RunInput } from "@/components/RunInput";
 import { RunHistorySidebar } from "@/components/RunHistorySidebar";
+import { ErrorBanner } from "@/components/ErrorBanner";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useStore } from "@/store/useStore";
@@ -20,6 +22,7 @@ import { Tabs as TabIds, type Tab } from "@/types";
 
 export function Dashboard() {
   const [tab, setTab] = useState<Tab>(TabIds.Execution);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const stepsCount = useStore((s) => s.steps.length);
   const testsCount = useStore((s) => s.testCases.length);
   const bugsCount = useStore((s) => s.bugs.length);
@@ -29,7 +32,11 @@ export function Dashboard() {
       <Sidebar />
 
       <main className="flex flex-1 flex-col min-w-0">
-        <TopBar />
+        <TopBar onOpenSettings={() => setSettingsOpen(true)} />
+
+        {/* Inline error banner — surfaces backend failures (provider unhealthy,
+            missing model, bad API key) instead of silently failing. */}
+        <ErrorBanner onOpenSettings={() => setSettingsOpen(true)} />
 
         <div className="flex-1 min-h-0 flex flex-col">
           <Tabs
@@ -87,6 +94,11 @@ export function Dashboard() {
       </main>
 
       <RunHistorySidebar />
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }
