@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Globe, Zap } from "lucide-react";
+import { Globe, Settings, Zap } from "lucide-react";
 
 export function Home({ onStart }: { onStart: (url: string) => void }) {
   const [url, setUrl] = useState("");
@@ -33,17 +33,17 @@ export function Home({ onStart }: { onStart: (url: string) => void }) {
     /* bg-slate-950: Deep dark background */
     /* flex-col items-center justify-center: Centers everything perfectly */
     <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-950 px-4">
-      
+
       <div className="mb-8 flex flex-col items-center text-center">
         <div className="mb-4 rounded-full bg-blue-500/10 p-3 ring-1 ring-blue-500/20">
           <Zap className="size-8 text-blue-500" />
         </div>
-        
+
         {/* bg-gradient-to-r: This creates the premium "Glow" effect */}
         <h1 className="mb-2 text-4xl font-bold tracking-tight text-white sm:text-6xl">
           Autonomous <span className="bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">QA Engineer</span>
         </h1>
-        
+
         <p className="text-lg text-slate-400">
           The Tester That Never Sleeps or Misses a Bug.
         </p>
@@ -74,3 +74,4 @@ export function Home({ onStart }: { onStart: (url: string) => void }) {
     </div>
   );
 }
+

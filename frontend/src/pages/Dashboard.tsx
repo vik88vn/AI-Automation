@@ -35,9 +35,9 @@ export function Dashboard() {
           <Tabs
             value={tab}
             onValueChange={(v) => setTab(v as Tab)}
-            className="flex-1"
+            className="flex-1 flex flex-col"
           >
-            <div className="px-5 pt-4 pb-2">
+            <div className="px-5 pt-4 pb-2 flex-shrink-0">
               <TabsList>
                 <TabsTrigger value={TabIds.Execution}>
                   <Activity className="size-3.5" />
@@ -69,15 +69,17 @@ export function Dashboard() {
               </TabsList>
             </div>
 
-            <TabsContent value={TabIds.Execution} className="px-0">
-              <ExecutionFeed />
-            </TabsContent>
-            <TabsContent value={TabIds.Tests} className="px-0">
-              <TestTable />
-            </TabsContent>
-            <TabsContent value={TabIds.Bugs} className="px-0">
-              <BugList />
-            </TabsContent>
+            <div className="h-[calc(100vh-160px)] overflow-y-auto pr-2 custom-scrollbar">
+              <TabsContent value={TabIds.Execution} className="px-0">
+                <ExecutionFeed />
+              </TabsContent>
+              <TabsContent value={TabIds.Tests} className="px-0">
+                <TestTable />
+              </TabsContent>
+              <TabsContent value={TabIds.Bugs} className="px-0">
+                <BugList />
+              </TabsContent>
+            </div>
           </Tabs>
         </div>
 

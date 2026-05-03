@@ -20,18 +20,27 @@ export function Sidebar() {
 
   return (
     <aside className="hidden md:flex md:flex-col w-[260px] shrink-0 border-r border-zinc-800/80 bg-zinc-950/60 backdrop-blur-xl">
-      {/* Brand */}
-      <div className="flex items-center gap-2 px-4 h-14 border-b border-zinc-800/80">
-        <div className="size-7 rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 grid place-items-center shadow-sm">
-          <Sparkles className="size-4 text-zinc-50" />
-        </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold text-zinc-100">QA Agent</span>
-          <span className="text-[10px] text-zinc-500 tracking-wide uppercase">
-            deep agent
-          </span>
-        </div>
-      </div>
+    {/* Brand — Clickable to go Home */}
+<div 
+  onClick={goHome}
+  className="flex items-center gap-2 px-4 h-14 border-b border-zinc-800/80 cursor-pointer group transition-all hover:bg-zinc-900/40"
+>
+  {/* The Icon with a hover scale effect */}
+  <div className="size-7 rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 grid place-items-center shadow-sm group-hover:scale-110 transition-transform">
+    <Sparkles className="size-4 text-zinc-50" />
+  </div>
+  
+  {/* The Text with a hover color shift */}
+  <div className="flex flex-col leading-tight">
+    <span className="text-sm font-semibold text-zinc-100 group-hover:text-blue-400 transition-colors">
+      QA Agent
+    </span>
+    <span className="text-[10px] text-zinc-500 tracking-wide uppercase">
+      deep agent
+    </span>
+  </div>
+</div>
+
 
       {/* New Run — snapshots current state into history then routes home so the
           user can pick a fresh URL. */}

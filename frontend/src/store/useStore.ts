@@ -33,11 +33,13 @@ interface DisplayState {
   testCases: TestCase[];
   bugs: Bug[];
   appModel: AppModel;
+  apiKey: string;
 }
 
 interface DisplayActions {
   setUrl(url: string): void;
   setStatus(status: RunStatus): void;
+  setApiKey(key: string): void;
   hydrate(run: Run): void;
   reset(): void;
   pushStep(kind: StepKind, target: string, reason: string): void;
@@ -52,6 +54,7 @@ const initialFromActive = (): DisplayState => ({
   testCases: MOCK_ACTIVE_RUN.snapshot.testCases,
   bugs: MOCK_ACTIVE_RUN.snapshot.bugs,
   appModel: MOCK_ACTIVE_RUN.snapshot.appModel,
+  apiKey: "",
 });
 
 const emptyDisplay = (url = ""): DisplayState => ({
@@ -61,39 +64,49 @@ const emptyDisplay = (url = ""): DisplayState => ({
   testCases: [],
   bugs: [],
   appModel: { ...emptyAppModel(), startUrl: url },
+  apiKey: "",
 });
 
-export const useStore = create<DisplayStore>((set, get) => ({
-  ...initialFromActive(),
+export const useStore = create<DisplayStore>()(
+  persist(
+    (set, get) => ({
+      ...initialFromActive(),
 
-  setUrl: (url) => set({ url }),
+      setUrl: (url) => set({ url }),
 
-  setStatus: (status) => set({ status }),
+      setStatus: (status) => set({ status }),
 
-  hydrate: (run) =>
-    set({
-      url: run.url,
-      status: run.status,
-      steps: run.snapshot.steps,
-      testCases: run.snapshot.testCases,
-      bugs: run.snapshot.bugs,
-      appModel: run.snapshot.appModel,
+      setApiKey: (key) => set({ apiKey: key }),
+
+      hydrate: (run) =>
+        set({
+          url: run.url,
+          status: run.status,
+          steps: run.snapshot.steps,
+          testCases: run.snapshot.testCases,
+          bugs: run.snapshot.bugs,
+          appModel: run.snapshot.appModel,
+        }),
+
+      reset: () => set(emptyDisplay()),
+
+      pushStep: (kind, target, reason) => {
+        const next = get().steps.length + 1;
+        const step: ExecutionStep = {
+          id: `live_s${next}_${Date.now()}`,
+          step: next,
+          kind,
+          target,
+          reason,
+          result: Math.random() > 0.15 ? StepResults.Success : StepResults.Failure,
+          detail: kind === StepKinds.Extract ? "discovered new entries" : undefined,
+          timestamp: new Date().toISOString(),
+        };
+        set((s) => ({ steps: [...s.steps, step] }));
+      },
     }),
-
-  reset: () => set(emptyDisplay()),
-
-  pushStep: (kind, target, reason) => {
-    const next = get().steps.length + 1;
-    const step: ExecutionStep = {
-      id: `live_s${next}_${Date.now()}`,
-      step: next,
-      kind,
-      target,
-      reason,
-      result: Math.random() > 0.15 ? StepResults.Success : StepResults.Failure,
-      detail: kind === StepKinds.Extract ? "discovered new entries" : undefined,
-      timestamp: new Date().toISOString(),
-    };
-    set((s) => ({ steps: [...s.steps, step] }));
-  },
-}));
+    {
+      name: 'qa-engineer-storage',
+    }
+  )
+);

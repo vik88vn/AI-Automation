@@ -22,4 +22,11 @@ This document serves as a record of the architectural choices, engineering trade
 **Decision:** Adopted a "Credential Injection" model over "Autonomous Guessing" for login walls.
 **Reasoning:** Autonomous agents often fail at MFA (Multi-Factor Authentication). By designing a `request_credentials` tool, I am prioritizing reliability. The agent detects the login requirement, pauses for secure human input, and then persists the resulting session cookies to avoid redundant login prompts.
 
-"Implemented a 'Human-in-the-Loop' authentication bridge. Chose to pause agent execution for manual credential injection rather than autonomous guessing to ensure 100% reliability on MFA-protected and enterprise-grade login walls."
+5/3/2026 3:02 pm
+Implemented a 'Human-in-the-Loop' authentication bridge. Chose to pause agent execution for manual credential injection rather than autonomous guessing to ensure 100% reliability on MFA-protected and enterprise-grade login walls.
+
+5/3/2026 2:48 pm
+UX Optimization: Refactored the API configuration flow to be 'Pre-Flight' rather than 'Reactive.' Implemented a persistent Settings layer to allow users to configure LLM providers before the first run, eliminating the 'Fail-then-Fix' loop. Also implemented constrained-scroll containers for test results to maintain UI integrity on high-density data runs.
+
+5/3/2026 3:20 pm
+Implemented constrained-viewport scrolling using CSS calc() to maintain UI integrity during high-volume test execution. Also created an onClick handler for the logo and text on the top left of the UI to send the user back to the home page once clicked.
