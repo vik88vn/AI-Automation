@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowUp, Globe, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUp,
+  Globe,
+  Loader2,
+  Settings as SettingsIcon,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useStore } from "@/store/useStore";
+import { RunStatuses } from "@/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Home — landing page.
@@ -16,19 +25,39 @@ import { useStore } from "@/store/useStore";
 
 export function Home() {
   const startNewRun = useSessionStore((s) => s.startNewRun);
+  const goToDashboard = useSessionStore((s) => s.goToDashboard);
+  const activeRunId = useSessionStore((s) => s.activeRunId);
+  const runs = useSessionStore((s) => s.runs);
   const lastUrl = useStore((s) => s.url);
+  const liveStatus = useStore((s) => s.status);
   const [url, setUrl] = useState(lastUrl ?? "");
+  const [isStarting, setIsStarting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // True iff there is an agent run currently executing in the background —
+  // the user may have navigated home while leaving a run going.
+  const activeRunning =
+    liveStatus === RunStatuses.Running &&
+    runs.some((r) => r.id === activeRunId && r.status === RunStatuses.Running);
+  const activeRun = runs.find((r) => r.id === activeRunId);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = url.trim();
-    if (!trimmed) return;
-    startNewRun(trimmed);
+    if (!trimmed || isStarting) return;
+    setIsStarting(true);
+    try {
+      await startNewRun(trimmed);
+    } finally {
+      // The view has already swapped to Dashboard by now, but reset the
+      // local flag in case the user navigates back via "New Run".
+      setIsStarting(false);
+    }
   };
 
   return (
@@ -40,6 +69,21 @@ export function Home() {
         <div className="absolute bottom-[10%] right-[10%] h-[280px] w-[380px] rounded-full bg-fuchsia-500/5 blur-3xl" />
       </div>
 
+      {/* Settings gear — top-right corner. Same SettingsDialog the Dashboard
+          uses; localStorage-backed, so a key set here carries straight into
+          the next run. */}
+      <Button
+        type="button"
+        variant="icon"
+        size="icon"
+        onClick={() => setSettingsOpen(true)}
+        title="Settings (provider, API keys, model)"
+        aria-label="Open settings"
+        className="absolute top-4 right-4"
+      >
+        <SettingsIcon className="size-4" />
+      </Button>
+
       {/* Brand mark */}
       <div className="flex items-center gap-2 mb-10 animate-fade-in-up">
         <div className="size-8 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-500 grid place-items-center shadow-lg shadow-blue-500/20">
@@ -49,6 +93,26 @@ export function Home() {
           QA Agent
         </span>
       </div>
+
+      {/* Active-run pill — surfaces an in-flight backend run so the user
+          knows something's running even while they're on the landing page.
+          Same Loader2 spinner used by the sidebar / TopBar / TestTable for
+          consistency. */}
+      {activeRunning && activeRun && (
+        <button
+          type="button"
+          onClick={goToDashboard}
+          className="mb-6 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-500/15 transition-colors animate-fade-in-up"
+          title="A run is in progress — click to view"
+        >
+          <Loader2 className="size-3.5 animate-spin" />
+          <span className="font-medium">Run in progress</span>
+          <span className="text-amber-200/60 font-mono truncate max-w-[260px]">
+            {activeRun.url.replace(/^https?:\/\//, "")}
+          </span>
+          <ArrowRight className="size-3" />
+        </button>
+      )}
 
       {/* Title + motto */}
       <h1 className="text-center text-4xl sm:text-5xl md:text-6xl font-semibold tracking-tight text-zinc-50 max-w-3xl leading-[1.05] animate-fade-in-up">
@@ -72,9 +136,23 @@ export function Home() {
             spellCheck={false}
             autoComplete="off"
           />
-          <Button type="submit" size="default" disabled={!url.trim()} className="rounded-xl">
-            Run QA
-            <ArrowUp className="size-4" />
+          <Button
+            type="submit"
+            size="default"
+            disabled={!url.trim() || isStarting}
+            className="rounded-xl min-w-[110px]"
+          >
+            {isStarting ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Starting…
+              </>
+            ) : (
+              <>
+                Run QA
+                <ArrowUp className="size-4" />
+              </>
+            )}
           </Button>
         </div>
         <p className="mt-3 text-xs text-zinc-500 text-center">
@@ -92,6 +170,11 @@ export function Home() {
         <FeaturePill title="Generates" body="Writes test cases as it discovers features and forms." />
         <FeaturePill title="Reports" body="Real bugs separated from broken tests, with reproduction steps." />
       </div>
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }

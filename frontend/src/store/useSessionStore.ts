@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { MOCK_ACTIVE_RUN, MOCK_RUN_HISTORY } from "@/lib/mockData";
+import { startRun as apiStartRun, subscribeToRun } from "@/lib/api";
+import { routeAgentEvent } from "@/lib/eventRouter";
 import {
   RunStatuses,
   Views,
@@ -10,62 +12,38 @@ import {
 import { useStore } from "./useStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// useSessionStore
+// useSessionStore — multi-session lifecycle.
 //
-// Owns the multi-session lifecycle:
-//   - the in-memory run history (typed `Run[]`)
-//   - the active run id
-//   - the current `view` (Home or Dashboard)
-//
-// Coordinates with `useStore` (the live-display store) via getState() reads
-// and direct hydrate/reset calls. The architectural rule: this store decides
-// WHICH run is active; useStore decides WHAT the dashboard renders for that
-// run. They never duplicate fields.
+// Owns: run history (Run[]), active run id, current view (Home or Dashboard),
+// and the live SSE subscription. Coordinates with `useStore` (live-display)
+// via `getState()` reads and `hydrate()` calls; coordinates with the backend
+// via `lib/api`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface SessionState {
   view: View;
   runs: Run[];                    // history, newest-first
   activeRunId: string | null;
+  // Tracks any open SSE subscription so we can close it on session change.
+  // Module-private — exposed via the store so getState() can reach it from
+  // actions, but never read by components.
+  _closeStream: (() => void) | null;
+  // Surfaces backend-side failures (e.g. provider unhealthy) to UI.
+  lastError: string | null;
 }
 
 interface SessionActions {
-  // View transitions ------------------------------------------------
   goHome(): void;
   goToDashboard(): void;
-
-  // Run lifecycle ---------------------------------------------------
-  /**
-   * Create a new run from a target URL, push the previously-active run's
-   * snapshot to history (if any), hydrate the live store with an empty
-   * shell, and transition to the Dashboard view.
-   *
-   * This is the single atomic action invoked by both the Home page's URL
-   * input and the left sidebar's "New Run" button.
-   */
-  startNewRun(url: string): void;
-
-  /**
-   * Hydrate the dashboard with a historical run's snapshot.
-   * Writes any in-progress live state back to the active run's history
-   * entry first so we don't lose work when switching.
-   */
+  startNewRun(url: string): Promise<void>;
   selectRun(id: string): void;
-
-  /**
-   * End the currently-active run, sync its final snapshot into history.
-   * Status defaults to Completed; pass Failed when the agent errors out.
-   */
   endActiveRun(status?: RunStatus): void;
-
-  /** Wipe history (keeps the active run). */
   clearHistory(): void;
+  clearError(): void;
 }
 
 type SessionStore = SessionState & SessionActions;
 
-// Snapshot the live useStore into a Run record.
-// Pulled out so both `startNewRun` and `selectRun` use identical logic.
 function snapshotActiveIntoHistory(
   runs: Run[],
   activeRunId: string | null
@@ -89,6 +67,35 @@ function snapshotActiveIntoHistory(
   );
 }
 
+function buildEmptyRun(id: string, url: string): Run {
+  return {
+    id,
+    url,
+    startedAt: new Date().toISOString(),
+    endedAt: null,
+    status: RunStatuses.Running,
+    snapshot: {
+      steps: [],
+      testCases: [],
+      bugs: [],
+      appModel: {
+        startUrl: url,
+        routes: [],
+        auth: {
+          hasLogin: false,
+          hasSignup: false,
+          hasLogout: false,
+          loggedIn: false,
+          notes: "",
+        },
+        entities: [],
+        flows: [],
+        forms: [],
+      },
+    },
+  };
+}
+
 const initialActiveRun: Run = MOCK_ACTIVE_RUN;
 const initialHistory: Run[] = [initialActiveRun, ...MOCK_RUN_HISTORY];
 
@@ -96,70 +103,116 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   view: Views.Home,
   runs: initialHistory,
   activeRunId: initialActiveRun.id,
+  _closeStream: null,
+  lastError: null,
 
   goHome: () => {
-    // Persist current live state back to history before leaving the dashboard.
+    // Cancel any open stream — the user is leaving the dashboard.
+    get()._closeStream?.();
     const { runs, activeRunId } = get();
     set({
       view: Views.Home,
       runs: snapshotActiveIntoHistory(runs, activeRunId),
+      _closeStream: null,
     });
   },
 
   goToDashboard: () => set({ view: Views.Dashboard }),
 
-  startNewRun: (rawUrl) => {
+  /**
+   * Create a new run. Tries the backend first; if reachable, hooks the SSE
+   * stream into the event router so live data flows in. If the backend is
+   * down, falls back to a local-only run (mock-style) so the UI still works.
+   */
+  startNewRun: async (rawUrl) => {
     const url = rawUrl.trim();
     if (!url) return;
 
-    const { runs, activeRunId } = get();
-    const persisted = snapshotActiveIntoHistory(runs, activeRunId);
+    // Close any prior stream BEFORE we touch state.
+    get()._closeStream?.();
 
-    const id = `run_${Date.now()}`;
-    const newRun: Run = {
-      id,
-      url,
-      startedAt: new Date().toISOString(),
-      endedAt: null,
-      status: RunStatuses.Running,
-      snapshot: {
-        steps: [],
-        testCases: [],
-        bugs: [],
-        appModel: {
-          startUrl: url,
-          routes: [],
-          auth: {
-            hasLogin: false,
-            hasSignup: false,
-            hasLogout: false,
-            loggedIn: false,
-            notes: "",
-          },
-          entities: [],
-          flows: [],
-          forms: [],
-        },
+    const persisted = snapshotActiveIntoHistory(get().runs, get().activeRunId);
+
+    // Optimistic local run — we'll swap the id once the backend confirms.
+    const localId = `local_${Date.now()}`;
+    const localRun = buildEmptyRun(localId, url);
+    useStore.getState().hydrate(localRun);
+    set({
+      runs: [localRun, ...persisted],
+      activeRunId: localId,
+      view: Views.Dashboard,
+      _closeStream: null,
+      lastError: null,
+    });
+
+    // Attempt to start the run on the backend.
+    let backendId: string | null = null;
+    try {
+      const resp = await apiStartRun({ url });
+      backendId = resp.id;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Stay in local-only mode so the UI doesn't break — surface the error.
+      set({
+        lastError: `Backend unavailable — running in offline preview mode. ${message}`,
+      });
+      return;
+    }
+
+    // Backend accepted. Reconcile id and start streaming events.
+    set((s) => ({
+      runs: s.runs.map((r) =>
+        r.id === localId ? { ...r, id: backendId! } : r
+      ),
+      activeRunId: backendId,
+    }));
+
+    // Session-level callbacks the router invokes on terminal events.
+    // Passing them in keeps eventRouter from importing this store
+    // (which would create a circular dependency).
+    const routerCallbacks = {
+      onError: (message: string) => set({ lastError: message }),
+      onEnd: (finalStatus: RunStatus) => {
+        const { runs, activeRunId } = get();
+        if (!activeRunId) return;
+        const synced = snapshotActiveIntoHistory(runs, activeRunId);
+        set({
+          runs: synced.map((r) =>
+            r.id === activeRunId
+              ? { ...r, status: finalStatus, endedAt: r.endedAt ?? new Date().toISOString() }
+              : r
+          ),
+        });
       },
     };
 
-    // Hydrate the live store with the new (empty) run, then flip view.
-    useStore.getState().hydrate(newRun);
-
-    set({
-      runs: [newRun, ...persisted],
-      activeRunId: id,
-      view: Views.Dashboard,
+    const close = subscribeToRun(backendId, {
+      onEvent: (event) => routeAgentEvent(event, routerCallbacks),
+      onDone: () => {
+        // Final sync into history; status was set by `run_end` already.
+        set((s) => ({
+          runs: snapshotActiveIntoHistory(s.runs, s.activeRunId),
+          _closeStream: null,
+        }));
+      },
+      onError: () => {
+        // EventSource auto-reconnects unless we close it; api.ts already
+        // closes on error. We just clear the closer reference.
+        set({ _closeStream: null });
+      },
     });
+    set({ _closeStream: close });
   },
 
   selectRun: (id) => {
-    const { runs, activeRunId } = get();
+    const { runs, activeRunId, _closeStream } = get();
     if (id === activeRunId) {
-      // Already active — just make sure we're on the dashboard.
       set({ view: Views.Dashboard });
       return;
     }
+    // Switching sessions — drop the active stream (the prior run keeps
+    // streaming on the backend; we just stop displaying it).
+    _closeStream?.();
     const persisted = snapshotActiveIntoHistory(runs, activeRunId);
     const target = persisted.find((r) => r.id === id);
     if (!target) return;
@@ -169,13 +222,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       runs: persisted,
       activeRunId: id,
       view: Views.Dashboard,
+      _closeStream: null,
     });
   },
 
   endActiveRun: (status = RunStatuses.Completed) => {
     const { runs, activeRunId } = get();
     if (!activeRunId) return;
-    // Sync live state then flip the status.
     const synced = snapshotActiveIntoHistory(runs, activeRunId);
     set({
       runs: synced.map((r) =>
@@ -184,7 +237,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           : r
       ),
     });
-    // Also reflect the status change in the live display.
     useStore.getState().setStatus(status);
   },
 
@@ -194,10 +246,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       runs: s.runs.filter((r) => r.id === activeRunId),
     }));
   },
+
+  clearError: () => set({ lastError: null }),
 }));
 
-// Convenience selector hooks — encourage single-purpose subscriptions so
-// components don't re-render on unrelated state changes.
+// Convenience selector hooks — single-purpose subscriptions.
 export const useView = () => useSessionStore((s) => s.view);
 export const useActiveRunId = () => useSessionStore((s) => s.activeRunId);
 export const useRunHistory = () => useSessionStore((s) => s.runs);
+export const useSessionError = () => useSessionStore((s) => s.lastError);

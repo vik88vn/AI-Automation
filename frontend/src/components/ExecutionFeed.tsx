@@ -10,6 +10,9 @@ import {
   PlayCircle,
   Bug as BugIcon,
   Sparkles,
+  Database,
+  ListPlus,
+  Flag,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { cn, formatTime } from "@/lib/utils";
@@ -24,6 +27,9 @@ const KIND_ICON: Record<StepKind, React.ComponentType<{ className?: string }>> =
   run_test: PlayCircle,
   report_bug: BugIcon,
   analysis: Sparkles,
+  record_observation: Database,
+  add_test: ListPlus,
+  finish: Flag,
 };
 
 const KIND_COLOR: Record<StepKind, string> = {
@@ -35,6 +41,9 @@ const KIND_COLOR: Record<StepKind, string> = {
   run_test: "text-amber-300 bg-amber-500/10 border-amber-500/20",
   report_bug: "text-red-300 bg-red-500/10 border-red-500/20",
   analysis: "text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/20",
+  record_observation: "text-teal-300 bg-teal-500/10 border-teal-500/20",
+  add_test: "text-indigo-300 bg-indigo-500/10 border-indigo-500/20",
+  finish: "text-zinc-300 bg-zinc-500/10 border-zinc-500/20",
 };
 
 export function ExecutionFeed() {

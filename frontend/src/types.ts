@@ -39,6 +39,10 @@ export const StepKinds = {
   RunTest: "run_test",
   ReportBug: "report_bug",
   Analysis: "analysis",
+  // Meta-tools the agent calls (not browser actions but worth showing).
+  RecordObservation: "record_observation",
+  AddTest: "add_test",
+  Finish: "finish",
 } as const;
 export type StepKind = (typeof StepKinds)[keyof typeof StepKinds];
 
