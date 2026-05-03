@@ -118,15 +118,22 @@ export const MOCK_RUN_HISTORY: Run[] = [
 ];
 
 export const MOCK_ACTIVE_RUN: Run = {
-  id: "run_004",
-  url: "https://app.acme-shop.com",
-  startedAt: ago(34),
+  id: `run_${Date.now()}`,
+  url: "",
+  startedAt: null,
   endedAt: null,
-  status: RunStatuses.Running,
+  status: RunStatuses.Queued,
   snapshot: {
-    steps: MOCK_STEPS,
-    testCases: MOCK_TESTS,
-    bugs: MOCK_BUGS,
-    appModel: MOCK_APP_MODEL,
+    steps: [],
+    testCases: [],
+    bugs: [],
+    appModel: {
+      startUrl: "",
+      routes: [],
+      auth: { hasLogin: false, hasSignup: false, hasLogout: false, loggedIn: false, notes: "" },
+      entities: [],
+      flows: [],
+      forms: [],
+    },
   },
 };

@@ -30,3 +30,27 @@ UX Optimization: Refactored the API configuration flow to be 'Pre-Flight' rather
 
 5/3/2026 3:20 pm
 Implemented constrained-viewport scrolling using CSS calc() to maintain UI integrity during high-volume test execution. Also created an onClick handler for the logo and text on the top left of the UI to send the user back to the home page once clicked.
+
+## 6. Folder Merge & Conflict Resolution
+**Decision:** When parallel Claude session work appeared in a duplicate subfolder, resolved via git merge instead of manual copying.
+**Reasoning:** Preserves history, enables tracking of parallel work, and ensures all features are integrated correctly. Typed out manual merge conflict resolution for frontend stores and components, combining parent's session persistence with sub's event-driven architecture.
+
+## 7. Mock Data Lifecycle
+**Decision:** Changed `MOCK_ACTIVE_RUN` from a pre-populated running session to an empty queued state.
+**Reasoning:** Users were confused seeing a test "in progress" on fresh load. An empty initial state clearly signals "waiting for user input" and respects the principle that the app should start in a default/clean state rather than assume test history exists.
+
+## 8. URL Input & Localhost Support
+**Decision:** Changed input type from "text" to "url" with client-side URL normalization logic.
+**Reasoning:** 
+- HTML5 `type="url"` provides built-in validation and mobile keyboards optimized for URLs
+- Added regex-based protocol injection: `localhost:3000` → `http://localhost:3000`, domain without protocol → `https://domain`
+- This lowers the barrier to testing local dev servers while maintaining HTTPS-first for production domains
+- Validation happens in `onSubmit` before calling `startNewRun`, preventing malformed URLs from reaching the backend
+
+## 9. Architecture Decision: Client vs. Server URL Normalization
+**Decision:** Handle URL normalization on the frontend, not the backend.
+**Reasoning:** 
+- Frontend can provide immediate visual feedback (invalid URL styling, helper text)
+- Reduces backend complexity and API contract brittleness
+- Works offline and enables form validation before sending requests
+- UX: user sees their input transformed in real-time, building confidence

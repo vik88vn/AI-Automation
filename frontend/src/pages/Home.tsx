@@ -48,14 +48,23 @@ export function Home() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const trimmed = url.trim();
-    if (!trimmed || isStarting) return;
+    let urlToTest = url.trim();
+    if (!urlToTest || isStarting) return;
+
+    // Support localhost URLs without protocol
+    if (urlToTest.startsWith("localhost:") || urlToTest.match(/^127\.0\.0\.1(:\d+)?$/)) {
+      urlToTest = `http://${urlToTest}`;
+    }
+
+    // Ensure URL has a protocol (http or https)
+    if (!urlToTest.match(/^https?:\/\//)) {
+      urlToTest = `https://${urlToTest}`;
+    }
+
     setIsStarting(true);
     try {
-      await startNewRun(trimmed);
+      await startNewRun(urlToTest);
     } finally {
-      // The view has already swapped to Dashboard by now, but reset the
-      // local flag in case the user navigates back via "New Run".
       setIsStarting(false);
     }
   };
@@ -128,10 +137,10 @@ export function Home() {
           <Globe className="size-5 text-zinc-500 shrink-0" />
           <input
             ref={inputRef}
-            type="text"
+            type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com  ·  or  http://localhost:3000"
+            placeholder="https://example.com  or  http://localhost:3000"
             className="flex-1 bg-transparent outline-none text-base text-zinc-100 placeholder:text-zinc-600 font-mono"
             spellCheck={false}
             autoComplete="off"
