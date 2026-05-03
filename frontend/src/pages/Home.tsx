@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowUp, Globe, Sparkles } from "lucide-react";
+import { ArrowUp, Globe, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useStore } from "@/store/useStore";
+import { SettingsModal } from "@/components/SettingsModal";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Home — landing page.
@@ -18,6 +19,7 @@ export function Home() {
   const startNewRun = useSessionStore((s) => s.startNewRun);
   const lastUrl = useStore((s) => s.url);
   const [url, setUrl] = useState(lastUrl ?? "");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

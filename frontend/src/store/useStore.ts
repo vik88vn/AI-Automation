@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { MOCK_ACTIVE_RUN } from "@/lib/mockData";
 import {
   RunStatuses,
@@ -71,13 +72,9 @@ export const useStore = create<DisplayStore>()(
   persist(
     (set, get) => ({
       ...initialFromActive(),
-
       setUrl: (url) => set({ url }),
-
       setStatus: (status) => set({ status }),
-
       setApiKey: (key) => set({ apiKey: key }),
-
       hydrate: (run) =>
         set({
           url: run.url,
@@ -87,9 +84,7 @@ export const useStore = create<DisplayStore>()(
           bugs: run.snapshot.bugs,
           appModel: run.snapshot.appModel,
         }),
-
       reset: () => set(emptyDisplay()),
-
       pushStep: (kind, target, reason) => {
         const next = get().steps.length + 1;
         const step: ExecutionStep = {
@@ -106,7 +101,7 @@ export const useStore = create<DisplayStore>()(
       },
     }),
     {
-      name: 'qa-engineer-storage',
+      name: "qa-engineer-storage", // This is the key in LocalStorage
     }
   )
 );
