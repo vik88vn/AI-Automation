@@ -1,9 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-
-import {
-  MOCK_ACTIVE_RUN,
-} from "@/lib/mockData";
+import { MOCK_ACTIVE_RUN } from "@/lib/mockData";
 import {
   RunStatuses,
   StepKinds,
@@ -67,44 +63,37 @@ const emptyDisplay = (url = ""): DisplayState => ({
   appModel: { ...emptyAppModel(), startUrl: url },
 });
 
-export const useStore = create<DisplayStore>()(
-  persist(
-    (set, get) => ({
-      ...initialFromActive(),
+export const useStore = create<DisplayStore>((set, get) => ({
+  ...initialFromActive(),
 
-      setUrl: (url) => set({ url }),
+  setUrl: (url) => set({ url }),
 
-      setStatus: (status) => set({ status }),
+  setStatus: (status) => set({ status }),
 
-      hydrate: (run) =>
-        set({
-          url: run.url,
-          status: run.status,
-          steps: run.snapshot.steps,
-          testCases: run.snapshot.testCases,
-          bugs: run.snapshot.bugs,
-          appModel: run.snapshot.appModel,
-        }),
-
-      reset: () => set(emptyDisplay()),
-
-      pushStep: (kind, target, reason) => {
-        const next = get().steps.length + 1;
-        const step: ExecutionStep = {
-          id: `live_s${next}_${Date.now()}`,
-          step: next,
-          kind,
-          target,
-          reason,
-          result: Math.random() > 0.15 ? StepResults.Success : StepResults.Failure,
-          detail: kind === StepKinds.Extract ? "discovered new entries" : undefined,
-          timestamp: new Date().toISOString(),
-        };
-        set((s) => ({ steps: [...s.steps, step] }));
-      },
+  hydrate: (run) =>
+    set({
+      url: run.url,
+      status: run.status,
+      steps: run.snapshot.steps,
+      testCases: run.snapshot.testCases,
+      bugs: run.snapshot.bugs,
+      appModel: run.snapshot.appModel,
     }),
-    {
-      name: 'qa-engineer-storage',
-    }
-  )
-);
+
+  reset: () => set(emptyDisplay()),
+
+  pushStep: (kind, target, reason) => {
+    const next = get().steps.length + 1;
+    const step: ExecutionStep = {
+      id: `live_s${next}_${Date.now()}`,
+      step: next,
+      kind,
+      target,
+      reason,
+      result: Math.random() > 0.15 ? StepResults.Success : StepResults.Failure,
+      detail: kind === StepKinds.Extract ? "discovered new entries" : undefined,
+      timestamp: new Date().toISOString(),
+    };
+    set((s) => ({ steps: [...s.steps, step] }));
+  },
+}));

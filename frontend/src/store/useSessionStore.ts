@@ -1,8 +1,5 @@
 import { create } from "zustand";
-import {
-  MOCK_ACTIVE_RUN,
-  MOCK_RUN_HISTORY,
-} from "@/lib/mockData";
+import { MOCK_ACTIVE_RUN, MOCK_RUN_HISTORY } from "@/lib/mockData";
 import {
   RunStatuses,
   Views,

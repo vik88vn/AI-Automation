@@ -1,28 +1,22 @@
-import { Plus, Sparkles, Globe, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { Plus, Sparkles, Activity, Bug, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useSessionStore } from "@/store/useSessionStore";
 import { useStore } from "@/store/useStore";
-import { cn, relativeTime } from "@/lib/utils";
-import type { RunStatus } from "@/lib/mockData";
 
-const STATUS_DOT: Record<RunStatus, string> = {
-  running: "bg-amber-400",
-  completed: "bg-emerald-400",
-  failed: "bg-red-400",
-  queued: "bg-zinc-500",
-};
-
-const STATUS_ICON = {
-  running: Loader2,
-  completed: CheckCircle2,
-  failed: AlertTriangle,
-  queued: Globe,
-} as const;
+// ─────────────────────────────────────────────────────────────────────────────
+// Sidebar (left) — purpose pared down for the multi-session architecture.
+//
+// The history list now lives in `RunHistorySidebar` (right side). What stays
+// here: brand, "New Run" entry point (which sends the user back to Home), and
+// a compact summary of the active run (steps / tests / bugs counts).
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function Sidebar() {
-  const runs = useStore((s) => s.runsHistory);
-  const currentRunId = useStore((s) => s.currentRunId);
-  const selectRun = useStore((s) => s.selectRun);
-  const newRun = useStore((s) => s.newRun);
+  const goHome = useSessionStore((s) => s.goHome);
+  const stepsCount = useStore((s) => s.steps.length);
+  const testsCount = useStore((s) => s.testCases.length);
+  const bugsCount = useStore((s) => s.bugs.length);
 
   return (
     <aside className="hidden md:flex md:flex-col w-[260px] shrink-0 border-r border-zinc-800/80 bg-zinc-950/60 backdrop-blur-xl">
@@ -33,74 +27,45 @@ export function Sidebar() {
         </div>
         <div className="flex flex-col leading-tight">
           <span className="text-sm font-semibold text-zinc-100">QA Agent</span>
-          <span className="text-[10px] text-zinc-500 tracking-wide uppercase">deep agent</span>
+          <span className="text-[10px] text-zinc-500 tracking-wide uppercase">
+            deep agent
+          </span>
         </div>
       </div>
 
-      {/* New Run */}
+      {/* New Run — snapshots current state into history then routes home so the
+          user can pick a fresh URL. */}
       <div className="p-3">
-        <Button onClick={newRun} className="w-full justify-center">
+        <Button onClick={goHome} className="w-full justify-center">
           <Plus className="size-4" />
           New Run
         </Button>
       </div>
 
-      {/* History header */}
+      {/* Active run summary — quick-glance counters that mirror the tab badges
+          in the main pane. Subscribers are scoped per-counter so unrelated
+          updates don't re-render the whole panel. */}
       <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider text-zinc-500">
-        Recent Runs
+        Active Run
       </div>
 
-      {/* Run list */}
-      <nav className="flex-1 overflow-y-auto px-2 pb-4 space-y-1">
-        {runs.map((r) => {
-          const Icon = STATUS_ICON[r.status];
-          const active = r.id === currentRunId;
-          return (
-            <button
-              key={r.id}
-              onClick={() => selectRun(r.id)}
-              className={cn(
-                "group w-full flex items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-150",
-                active
-                  ? "bg-zinc-800/80 ring-1 ring-zinc-700/80"
-                  : "hover:bg-zinc-900/80"
-              )}
-            >
-              <span
-                className={cn(
-                  "size-2 rounded-full flex-shrink-0",
-                  STATUS_DOT[r.status],
-                  r.status === "running" && "animate-pulse-soft"
-                )}
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-zinc-200 truncate">
-                  {r.url.replace(/^https?:\/\//, "")}
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                  <Icon
-                    className={cn(
-                      "size-3",
-                      r.status === "running" && "animate-spin",
-                      r.status === "failed" && "text-red-400",
-                      r.status === "completed" && "text-emerald-400"
-                    )}
-                  />
-                  <span className="capitalize">{r.status}</span>
-                  <span aria-hidden>·</span>
-                  <span>{relativeTime(r.startedAt)}</span>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </nav>
+      <div className="px-3 space-y-1">
+        <SummaryRow icon={Activity} label="Steps" value={stepsCount} />
+        <SummaryRow icon={ListChecks} label="Tests" value={testsCount} />
+        <SummaryRow
+          icon={Bug}
+          label="Bugs"
+          value={bugsCount}
+          highlight={bugsCount > 0}
+        />
+      </div>
+
+      <div className="flex-1" />
 
       {/* Footer */}
       <div className="border-t border-zinc-800/80 p-3 text-[11px] text-zinc-500">
         <div className="flex items-center justify-between">
-          <span>v0.1.0 · mock data</span>
+          <span>v0.2.0 · mock data</span>
           <span className="inline-flex items-center gap-1">
             <span className="size-1.5 rounded-full bg-emerald-400" />
             online
@@ -108,5 +73,25 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+  );
+}
+
+function SummaryRow({
+  icon: Icon,
+  label,
+  value,
+  highlight,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-2xl px-3 py-2 hover:bg-zinc-900/60 transition-colors">
+      <Icon className="size-4 text-zinc-500" />
+      <span className="text-xs text-zinc-300 flex-1">{label}</span>
+      <Badge variant={highlight ? "danger" : "muted"}>{value}</Badge>
+    </div>
   );
 }

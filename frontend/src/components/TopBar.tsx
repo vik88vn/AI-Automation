@@ -1,29 +1,33 @@
 import { Play, Square, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/store/useStore";
+import { useSessionStore } from "@/store/useSessionStore";
 import { cn } from "@/lib/utils";
+import { RunStatuses, type RunStatus } from "@/types";
 
-const STATUS_LABEL = {
-  running: "Running",
-  completed: "Completed",
-  failed: "Failed",
-  queued: "Idle",
-} as const;
+const STATUS_LABEL: Record<RunStatus, string> = {
+  [RunStatuses.Running]: "Running",
+  [RunStatuses.Completed]: "Completed",
+  [RunStatuses.Failed]: "Failed",
+  [RunStatuses.Queued]: "Idle",
+};
 
-const STATUS_DOT = {
-  running: "bg-amber-400 animate-pulse-soft",
-  completed: "bg-emerald-400",
-  failed: "bg-red-400",
-  queued: "bg-zinc-500",
-} as const;
+const STATUS_DOT: Record<RunStatus, string> = {
+  [RunStatuses.Running]: "bg-amber-400 animate-pulse-soft",
+  [RunStatuses.Completed]: "bg-emerald-400",
+  [RunStatuses.Failed]: "bg-red-400",
+  [RunStatuses.Queued]: "bg-zinc-500",
+};
 
 export function TopBar() {
   const status = useStore((s) => s.status);
   const url = useStore((s) => s.url);
-  const startRun = useStore((s) => s.startRun);
-  const stopRun = useStore((s) => s.stopRun);
+  // Lifecycle now goes through the session store. Start = create a new run
+  // (snapshots prior, hydrates fresh). Stop = mark active run completed.
+  const startNewRun = useSessionStore((s) => s.startNewRun);
+  const endActiveRun = useSessionStore((s) => s.endActiveRun);
 
-  const isRunning = status === "running";
+  const isRunning = status === RunStatuses.Running;
 
   return (
     <div className="h-14 shrink-0 border-b border-zinc-800/80 bg-zinc-950/70 backdrop-blur-xl">
@@ -52,7 +56,11 @@ export function TopBar() {
         {/* Controls */}
         <div className="flex items-center gap-2">
           {isRunning ? (
-            <Button variant="destructive" size="sm" onClick={stopRun}>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => endActiveRun(RunStatuses.Completed)}
+            >
               <Square className="size-3.5" />
               Stop
             </Button>
@@ -60,7 +68,7 @@ export function TopBar() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => startRun(url)}
+              onClick={() => startNewRun(url)}
               disabled={!url.trim()}
             >
               <Play className="size-3.5" />

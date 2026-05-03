@@ -32,12 +32,9 @@ export function Home() {
   };
 
   return (
-    <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-16 overflow-hidden">
+    <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-16 overflow-hidden flex-1">
       {/* Ambient backdrop — subtle gradient orbs that don't compete with content */}
-      <div
-        className="pointer-events-none absolute inset-0 -z-10"
-        aria-hidden
-      >
+      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
         <div className="absolute top-[10%] left-1/2 -translate-x-1/2 h-[420px] w-[720px] rounded-full bg-blue-500/10 blur-3xl" />
         <div className="absolute top-[40%] left-1/3 h-[320px] w-[420px] rounded-full bg-violet-500/10 blur-3xl" />
         <div className="absolute bottom-[10%] right-[10%] h-[280px] w-[380px] rounded-full bg-fuchsia-500/5 blur-3xl" />
@@ -62,10 +59,7 @@ export function Home() {
       </p>
 
       {/* URL form */}
-      <form
-        onSubmit={onSubmit}
-        className="mt-12 w-full max-w-2xl animate-fade-in-up"
-      >
+      <form onSubmit={onSubmit} className="mt-12 w-full max-w-2xl animate-fade-in-up">
         <div className="group flex items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/70 backdrop-blur-xl px-4 py-3 transition-all duration-150 focus-within:border-blue-500/60 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:shadow-lg focus-within:shadow-blue-500/10">
           <Globe className="size-5 text-zinc-500 shrink-0" />
           <input
@@ -78,12 +72,7 @@ export function Home() {
             spellCheck={false}
             autoComplete="off"
           />
-          <Button
-            type="submit"
-            size="default"
-            disabled={!url.trim()}
-            className="rounded-xl"
-          >
+          <Button type="submit" size="default" disabled={!url.trim()} className="rounded-xl">
             Run QA
             <ArrowUp className="size-4" />
           </Button>
@@ -99,18 +88,9 @@ export function Home() {
 
       {/* Feature pills — subtle, sets expectations for what the agent does */}
       <div className="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl w-full animate-fade-in-up">
-        <FeaturePill
-          title="Explores"
-          body="Walks the site like a tester — navigate, click, type, extract."
-        />
-        <FeaturePill
-          title="Generates"
-          body="Writes test cases as it discovers features and forms."
-        />
-        <FeaturePill
-          title="Reports"
-          body="Real bugs separated from broken tests, with reproduction steps."
-        />
+        <FeaturePill title="Explores" body="Walks the site like a tester — navigate, click, type, extract." />
+        <FeaturePill title="Generates" body="Writes test cases as it discovers features and forms." />
+        <FeaturePill title="Reports" body="Real bugs separated from broken tests, with reproduction steps." />
       </div>
     </div>
   );

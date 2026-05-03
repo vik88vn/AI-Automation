@@ -1,29 +1,32 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ArrowUp, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/store/useStore";
+import { useSessionStore } from "@/store/useSessionStore";
+import { RunStatuses } from "@/types";
 
 export function RunInput() {
   const url = useStore((s) => s.url);
-  const setUrl = useStore((s) => s.setUrl);
-  const startRun = useStore((s) => s.startRun);
   const status = useStore((s) => s.status);
+  // Submitting from here creates a NEW run — same atomic transition the
+  // Home page uses, just without the layout transition (we're already on
+  // the dashboard).
+  const startNewRun = useSessionStore((s) => s.startNewRun);
   const [draft, setDraft] = useState(url);
+
+  // Keep the input mirroring the active run's URL when the user switches
+  // sessions from the right sidebar — without fighting an in-progress edit.
+  useEffect(() => {
+    setDraft(url);
+  }, [url]);
+
+  const isRunning = status === RunStatuses.Running;
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!draft.trim()) return;
-    setUrl(draft);
-    startRun(draft);
+    startNewRun(draft);
   };
-
-  // Keep the input mirroring the store when the user picks a different run
-  // from the sidebar — but don't fight them while they're typing.
-  if (url && draft === "" && status !== "running") {
-    setDraft(url);
-  }
-
-  const isRunning = status === "running";
 
   return (
     <div className="border-t border-zinc-800/80 bg-zinc-950/80 backdrop-blur-xl">
@@ -56,7 +59,11 @@ export function RunInput() {
           </Button>
         </div>
         <p className="mt-2 text-[11px] text-zinc-500">
-          Press <kbd className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300 text-[10px] font-mono">Enter</kbd> to launch the agent. The current run will replace the active session.
+          Press{" "}
+          <kbd className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300 text-[10px] font-mono">
+            Enter
+          </kbd>{" "}
+          to launch a new run. The current session is saved to history first.
         </p>
       </form>
     </div>
