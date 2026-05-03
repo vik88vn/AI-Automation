@@ -56,7 +56,7 @@ CONSTRAINTS:
   - Keep targets deterministic — no randomness.
   - Stop when coverage is sufficient or you have used your step budget. The runner will also enforce a hard max.
   - If a tool returns an error, do not repeat the exact same call — adapt.
-
+"If you encounter a page that requires a login, or if you see a password field, DO NOT try to guess credentials. Immediately call handle_authentication with a description of the fields you see."
 Begin.`;
 
 type ToolBlock = Anthropic.Messages.ToolUseBlock;
@@ -118,7 +118,21 @@ const TOOL_DEFINITIONS: ToolDef[] = [
       },
       required: ["domain", "data", "reason"],
     },
-  },
+  }
+  // Add this to your tool definitions
+{
+  name: "handle_authentication",
+  description: "Call this when you encounter a login wall, password field, or MFA prompt. It will pause execution and request secure credentials from the user.",
+  input_schema: {
+    type: "object",
+    properties: {
+      reason: { type: "string", description: "Why is auth needed? (e.g., 'Encountered login form', 'MFA required')" },
+      fields: { type: "array", items: { type: "string" }, description: "List of fields detected (e.g., ['username', 'password', 'otp'])" }
+    },
+    required: ["reason"]
+  }
+}
+
   {
     name: "add_test",
     description: "Append a new structured test case to the queue.",
@@ -480,6 +494,8 @@ export class DeepAgent {
         return this.handleRunTest(input);
       case "report_bug":
         return this.handleReportBug(input);
+      case "handle_authentication":
+        return await this.requestHumanAuth(input.reason as string, input.fields as Record<string, unknown>);
       case "finish":
         return {
           payload: {
@@ -793,6 +809,51 @@ export class DeepAgent {
     });
     this.emit("bug_reported", { bug });
     return { payload: { ok: true, bug } };
+  }
+
+  private async requestHumanAuth(reason: string, fields: Record<string, unknown>): Promise<ToolDispatch> {
+    const fieldList = Array.isArray(fields) ? (fields as string[]) : [];
+
+    this.emit("auth_required", { reason, fields: fieldList });
+
+    try {
+      const credentials = await new Promise<Record<string, string>>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Authentication request timed out after 5 minutes"));
+        }, 5 * 60 * 1000);
+
+        const handler = (e: AgentEvent) => {
+          if (e.type === "auth_response") {
+            clearTimeout(timeout);
+            resolve((e.payload as Record<string, string>) ?? {});
+          }
+        };
+        this.onEvent = handler;
+      });
+
+      for (const field of fieldList) {
+        if (credentials[field]) {
+          await this.browser.execute({
+            action: "type",
+            target: `input[name="${field}"], input[id="${field}"]`,
+            value: credentials[field],
+            reason: `Filling ${field} field for authentication`,
+          });
+        }
+      }
+
+      await this.browser.execute({
+        action: "click",
+        target: 'button[type="submit"], input[type="submit"]',
+        reason: "Submitting authentication form",
+      });
+
+      this.emit("auth_submitted", { reason });
+      return { payload: { ok: true, message: "Authentication submitted. Continuing exploration..." } };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { payload: { ok: false, error: message } };
+    }
   }
 
   private tests(): TestCase[] {
