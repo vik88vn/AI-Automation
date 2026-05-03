@@ -1,0 +1,98 @@
+name: AI QA
+
+on:
+  schedule:
+    # Every 6 hours
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode: 'agent' (deep agent loop) or 'pipeline' (classic explore→plan→execute)"
+        required: false
+        type: choice
+        default: "agent"
+        options:
+          - agent
+          - pipeline
+      target_url:
+        description: "Target URL to QA"
+        required: false
+        type: string
+      max_steps:
+        description: "(agent mode) Max agent iterations"
+        required: false
+        type: string
+        default: "40"
+      max_pages:
+        description: "(pipeline mode) Max pages to crawl"
+        required: false
+        type: string
+        default: "12"
+      max_tests:
+        description: "(pipeline mode) Max test cases to generate"
+        required: false
+        type: string
+        default: "15"
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run QA — deep agent
+        if: ${{ inputs.mode == 'agent' || inputs.mode == '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          QA_TARGET_URL: ${{ inputs.target_url || secrets.QA_TARGET_URL }}
+        run: |
+          npm run agent -- \
+            "$QA_TARGET_URL" \
+            --max-steps=${{ inputs.max_steps || '40' }}
+        continue-on-error: true
+        id: agent_run
+
+      - name: Run QA — classic pipeline
+        if: ${{ inputs.mode == 'pipeline' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          QA_TARGET_URL: ${{ inputs.target_url || secrets.QA_TARGET_URL }}
+          QA_MAX_PAGES: ${{ inputs.max_pages || '12' }}
+          QA_HEADLESS: "true"
+        run: |
+          npm run qa -- \
+            --max-tests=${{ inputs.max_tests || '15' }}
+        continue-on-error: true
+        id: pipeline_run
+
+      - name: Upload QA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-reports-${{ github.run_id }}
+          path: |
+            reports/**
+          retention-days: 30
+
+      - name: Fail if QA detected bugs
+        if: steps.agent_run.outcome == 'failure' || steps.pipeline_run.outcome == 'failure'
+        run: |
+          echo "QA run reported failing tests or bugs. See uploaded artifact for the full report."
+          exit 1

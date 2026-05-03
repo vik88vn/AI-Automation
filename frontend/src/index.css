@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  /* Subtle radial vignette so the app doesn't feel like a flat black sheet. */
+  background:
+    radial-gradient(circle at 20% -10%, rgba(99, 102, 241, 0.08), transparent 50%),
+    radial-gradient(circle at 100% 0%, rgba(59, 130, 246, 0.06), transparent 45%),
+    rgb(9, 9, 11);
+}
+
+/* ── Scrollbars (thin, dark, subtle) ─────────────────────────────────── */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(63, 63, 70, 0.6);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 91, 0.9);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────── */
+::selection {
+  background: rgba(59, 130, 246, 0.35);
+  color: white;
+}
+
+/* ── Subtle entrance animation when the whole page mounts ────────────── */
+.app-root {
+  animation: appBoot 320ms ease-out;
+}
+@keyframes appBoot {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -1,0 +1,1079 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI QA Deep Agent</title>
+    <style>
+      :root {
+        --bg: #0b0d10;
+        --panel: #14171c;
+        --panel-2: #1a1f26;
+        --border: #232a33;
+        --text: #e6edf3;
+        --muted: #8b97a4;
+        --accent: #6ea8fe;
+        --good: #2ec27e;
+        --bad: #f15a5a;
+        --warn: #f0b73b;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font: 14px/1.45 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      header h1 {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      header .pill {
+        font-size: 11px;
+        color: var(--muted);
+        padding: 3px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+      }
+      header .spacer { flex: 1; }
+      header form { display: flex; gap: 8px; align-items: center; }
+      input[type="url"], input[type="number"] {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font: inherit;
+      }
+      input[type="url"] { width: 320px; }
+      input[type="number"] { width: 80px; }
+      button {
+        background: var(--accent);
+        color: #0b0d10;
+        border: 0;
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      label.inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        padding: 12px;
+        height: calc(100vh - 53px);
+        overflow: hidden;
+      }
+      .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1;
+      }
+      .panel h2 {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        color: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .panel h2 .count {
+        background: var(--panel-2);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 1px 8px;
+        font-size: 11px;
+      }
+      .panel .body {
+        overflow: auto;
+        padding: 8px 12px;
+        flex: 1;
+      }
+      .feed-row {
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+        font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+        font-size: 12px;
+      }
+      .feed-row:last-child { border-bottom: 0; }
+      .feed-row .meta {
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+      .feed-row .meta .badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--panel-2);
+        color: var(--text);
+        margin-right: 6px;
+      }
+      .feed-row pre {
+        margin: 4px 0 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #c8d1da;
+      }
+      .badge.tool_call { background: #1e3a5c; color: #9bc2ff; }
+      .badge.tool_result { background: #25372a; color: #97e0b3; }
+      .badge.test_added { background: #3a2f5c; color: #cab8ff; }
+      .badge.test_passed { background: #1d3a2a; color: var(--good); }
+      .badge.test_failed { background: #4a1f1f; color: var(--bad); }
+      .badge.test_retry { background: #4a3b1c; color: var(--warn); }
+      .badge.bug_reported { background: #4a1f1f; color: var(--bad); }
+      .badge.run_start, .badge.run_end { background: #2c3a4a; color: var(--accent); }
+      .badge.model_update { background: #2b3a3a; color: #8ad8d8; }
+      .badge.run_error { background: #4a1f1f; color: var(--bad); }
+
+      .kv { display: grid; grid-template-columns: 110px 1fr; row-gap: 4px; column-gap: 8px; }
+      .kv dt { color: var(--muted); font-size: 12px; }
+      .kv dd { margin: 0; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-word; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+      td.status-passed { color: var(--good); }
+      td.status-failed { color: var(--bad); }
+      td.status-running { color: var(--warn); }
+      td.status-queued { color: var(--muted); }
+
+      .severity-critical { color: #ff7a7a; font-weight: 600; }
+      .severity-high { color: var(--bad); }
+      .severity-medium { color: var(--warn); }
+      .severity-low { color: var(--muted); }
+
+      .empty { color: var(--muted); font-style: italic; padding: 12px 0; }
+      details { margin-top: 4px; }
+      details summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+      details[open] summary { color: var(--text); }
+
+      /* Settings gear button */
+      .icon-btn {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+      .icon-btn:hover { background: var(--border); }
+      .pill.provider {
+        background: var(--panel-2);
+        color: var(--accent);
+        border: 1px solid var(--border);
+        cursor: help;
+      }
+      .pill.provider .dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--good);
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .pill.provider.warn .dot { background: var(--warn); }
+
+      /* Settings modal */
+      dialog#settings-modal {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0;
+        max-width: 560px;
+        width: calc(100% - 32px);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      dialog#settings-modal::backdrop {
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(2px);
+      }
+      .modal-head {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .modal-head h2 { font-size: 14px; margin: 0; font-weight: 600; }
+      .modal-head .spacer { flex: 1; }
+      .modal-body { padding: 16px 18px; max-height: 60vh; overflow: auto; }
+      .modal-foot {
+        padding: 12px 18px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        background: var(--panel-2);
+        border-bottom-left-radius: 10px;
+        border-bottom-right-radius: 10px;
+      }
+      .modal-body p.muted {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 0 0 14px 0;
+      }
+      fieldset {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 14px 12px;
+        margin: 0 0 14px 0;
+      }
+      fieldset legend {
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 0 6px;
+      }
+      .field {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 6px 0;
+      }
+      .field label {
+        font-size: 12px;
+        color: var(--muted);
+        width: 110px;
+        flex: 0 0 110px;
+      }
+      .field input[type="text"], .field input[type="password"] {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font: inherit;
+        flex: 1;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 12px;
+      }
+      .radio-row {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        font-size: 13px;
+      }
+      .radio-row label {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        cursor: pointer;
+      }
+      .ghost-btn {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      .resolved {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 8px;
+        padding: 8px 10px;
+        background: var(--panel-2);
+        border-radius: 6px;
+        font-family: ui-monospace, monospace;
+      }
+      .resolved strong { color: var(--accent); }
+      .reset-btn {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 8px;
+        cursor: pointer;
+        font-size: 11px;
+        flex: 0 0 auto;
+      }
+      .reset-btn:hover { color: var(--accent); border-color: var(--accent); }
+      .help {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 4px 0 0 120px;
+      }
+      .help code {
+        background: var(--panel-2);
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>AI QA — Deep Agent</h1>
+      <span class="pill" id="run-status">idle</span>
+      <span class="pill" id="step-counter">step 0/0</span>
+      <span
+        class="pill provider"
+        id="provider-pill"
+        title="Active LLM provider — click the gear to change."
+      >
+        <span class="dot"></span><span id="provider-label">ollama</span>
+      </span>
+      <div class="spacer"></div>
+      <form id="run-form">
+        <input
+          type="text"
+          id="url"
+          placeholder="http://localhost:3000 or https://example.com"
+          required
+          value="http://localhost:3000"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <label class="inline">
+          steps
+          <input type="number" id="max-steps" value="40" min="5" max="120" />
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="headless" checked /> headless
+        </label>
+        <button type="submit" id="start-btn">Start</button>
+        <button
+          type="button"
+          class="icon-btn"
+          id="settings-btn"
+          title="Settings (API keys, provider)"
+          aria-label="Open settings"
+        >
+          <!-- Inline gear SVG so it renders without external assets. -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </form>
+    </header>
+
+    <!-- Settings modal -->
+    <dialog id="settings-modal" aria-labelledby="settings-title">
+      <div class="modal-head">
+        <h2 id="settings-title">Settings</h2>
+        <span class="spacer"></span>
+        <button type="button" class="icon-btn" id="settings-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">
+          API keys live in your browser's <code>localStorage</code> and are sent to the local
+          server only at run time. Ollama is the default — no key needed, runs on your machine.
+        </p>
+
+        <fieldset>
+          <legend>Provider</legend>
+          <div class="radio-row">
+            <label><input type="radio" name="provider" value="auto" /> Auto (use first available)</label>
+            <label><input type="radio" name="provider" value="anthropic" /> Anthropic</label>
+            <label><input type="radio" name="provider" value="openai" /> OpenAI</label>
+            <label><input type="radio" name="provider" value="ollama" /> Ollama (local)</label>
+          </div>
+          <div class="resolved" id="resolved-provider">
+            Resolved: <strong id="resolved-name">ollama</strong>
+            <span id="resolved-detail"></span>
+          </div>
+        </fieldset>
+
+        <!-- Datalists provide a built-in dropdown of known-valid model IDs without
+             being restrictive — users can still type any other value. -->
+        <datalist id="anthropic-models">
+          <option value="claude-opus-4-7">Opus 4.7 — most capable</option>
+          <option value="claude-sonnet-4-6">Sonnet 4.6 — balanced</option>
+          <option value="claude-haiku-4-5">Haiku 4.5 — fastest</option>
+          <option value="claude-haiku-4-5-20251001">Haiku 4.5 (pinned date)</option>
+        </datalist>
+        <datalist id="openai-models">
+          <option value="gpt-4o"></option>
+          <option value="gpt-4o-mini"></option>
+          <option value="gpt-4-turbo"></option>
+          <option value="o3-mini"></option>
+        </datalist>
+        <datalist id="ollama-models">
+          <option value="llama3.1"></option>
+          <option value="llama3.2"></option>
+          <option value="qwen2.5"></option>
+          <option value="qwen2.5-coder"></option>
+          <option value="mistral"></option>
+        </datalist>
+
+        <fieldset>
+          <legend>Anthropic</legend>
+          <div class="field">
+            <label for="anthropic-key">API key</label>
+            <input type="password" id="anthropic-key" placeholder="sk-ant-…" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="anthropic-model">Model</label>
+            <input
+              type="text"
+              id="anthropic-model"
+              list="anthropic-models"
+              placeholder="claude-opus-4-7"
+              autocomplete="off"
+            />
+            <button type="button" class="reset-btn" data-reset="anthropic-model">reset</button>
+          </div>
+          <div class="help">
+            Click the field to see suggestions. Empty = use default
+            <code>claude-opus-4-7</code>. Avoid old IDs like <code>claude-3-haiku-latest</code> —
+            they were never valid.
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>OpenAI</legend>
+          <div class="field">
+            <label for="openai-key">API key</label>
+            <input type="password" id="openai-key" placeholder="sk-…" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="openai-model">Model</label>
+            <input
+              type="text"
+              id="openai-model"
+              list="openai-models"
+              placeholder="gpt-4o"
+              autocomplete="off"
+            />
+            <button type="button" class="reset-btn" data-reset="openai-model">reset</button>
+          </div>
+          <div class="help">Empty = default <code>gpt-4o</code>.</div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Ollama (default — no key required)</legend>
+          <div class="field">
+            <label for="ollama-url">Base URL</label>
+            <input type="text" id="ollama-url" placeholder="http://localhost:11434" />
+            <button type="button" class="reset-btn" data-reset="ollama-url">reset</button>
+          </div>
+          <div class="field">
+            <label for="ollama-model">Model</label>
+            <input
+              type="text"
+              id="ollama-model"
+              list="ollama-models"
+              placeholder="llama3.1"
+              autocomplete="off"
+            />
+            <button type="button" class="reset-btn" data-reset="ollama-model">reset</button>
+          </div>
+          <div class="help">
+            Empty = <code>http://localhost:11434</code> + <code>llama3.1</code>. Pull the model
+            first: <code>ollama pull llama3.1</code>.
+          </div>
+        </fieldset>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost-btn" id="settings-clear">Clear all</button>
+        <button type="button" class="ghost-btn" id="settings-cancel">Close</button>
+        <button type="button" id="settings-save">Save</button>
+      </div>
+    </dialog>
+
+    <main>
+      <section class="col">
+        <div class="panel">
+          <h2>Live Activity <span class="count" id="feed-count">0</span></h2>
+          <div class="body" id="feed">
+            <div class="empty">No activity yet. Enter a URL and click Start.</div>
+          </div>
+        </div>
+      </section>
+      <section class="col">
+        <div class="panel" style="flex: 0 0 auto;">
+          <h2>Application Model</h2>
+          <div class="body" id="app-model">
+            <div class="empty">Model will populate as the agent explores.</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Test Cases <span class="count" id="tests-count">0</span></h2>
+          <div class="body" id="tests">
+            <div class="empty">Tests appear as the agent generates them.</div>
+          </div>
+        </div>
+        <div class="panel" style="flex: 0 0 auto; max-height: 25%;">
+          <h2>
+            Bugs <span class="count" id="bugs-count">0</span>
+            <span style="margin-left:auto; color: var(--muted); font-size: 11px; font-weight: 400;">
+              real <span id="real-bugs-count">0</span> · false-failures
+              <span id="false-failures-count">0</span>
+            </span>
+          </h2>
+          <div class="body" id="bugs">
+            <div class="empty">No bugs reported.</div>
+          </div>
+        </div>
+        <div class="panel" style="flex: 0 0 auto; max-height: 25%;">
+          <h2>Test Issues <span class="count" id="issues-count">0</span></h2>
+          <div class="body" id="issues">
+            <div class="empty">
+              Failures classified as test problems (disabled / hidden / not visible) appear here
+              after the analysis pass.
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const feed = $("feed");
+      const appModelEl = $("app-model");
+      const testsEl = $("tests");
+      const bugsEl = $("bugs");
+      const feedCount = $("feed-count");
+      const testsCount = $("tests-count");
+      const bugsCount = $("bugs-count");
+      const issuesEl = $("issues");
+      const issuesCount = $("issues-count");
+      const realBugsCount = $("real-bugs-count");
+      const falseFailuresCount = $("false-failures-count");
+      const stepCounter = $("step-counter");
+      const runStatus = $("run-status");
+      const startBtn = $("start-btn");
+      const providerLabel = $("provider-label");
+      const providerPill = $("provider-pill");
+      const settingsBtn = $("settings-btn");
+      const settingsModal = $("settings-modal");
+
+      const SETTINGS_KEY = "ai-qa-deep-agent.settings.v1";
+      const DEFAULT_SETTINGS = {
+        preferred: "auto",
+        anthropicKey: "",
+        anthropicModel: "",
+        openaiKey: "",
+        openaiModel: "",
+        ollamaBaseUrl: "",
+        ollamaModel: "",
+      };
+
+      function loadSettings() {
+        try {
+          const raw = localStorage.getItem(SETTINGS_KEY);
+          if (!raw) return { ...DEFAULT_SETTINGS };
+          return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+        } catch {
+          return { ...DEFAULT_SETTINGS };
+        }
+      }
+
+      function saveSettings(s) {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+      }
+
+      // Mirrors server-side resolveProviderConfig logic so the UI can show what
+      // will actually be used before the user clicks Start.
+      function resolveProvider(s) {
+        const pref = s.preferred || "auto";
+        if (pref === "anthropic") {
+          return s.anthropicKey
+            ? { name: "anthropic", detail: `model=${s.anthropicModel || "claude-opus-4-7"}` }
+            : { name: "anthropic", detail: "(no key — start will fail)", warn: true };
+        }
+        if (pref === "openai") {
+          return s.openaiKey
+            ? { name: "openai", detail: `model=${s.openaiModel || "gpt-4o"}` }
+            : { name: "openai", detail: "(no key — start will fail)", warn: true };
+        }
+        if (pref === "ollama") {
+          return {
+            name: "ollama",
+            detail: `${s.ollamaBaseUrl || "http://localhost:11434"} · model=${s.ollamaModel || "llama3.1"}`,
+          };
+        }
+        // auto
+        if (s.anthropicKey) {
+          return { name: "anthropic", detail: `auto · model=${s.anthropicModel || "claude-opus-4-7"}` };
+        }
+        if (s.openaiKey) {
+          return { name: "openai", detail: `auto · model=${s.openaiModel || "gpt-4o"}` };
+        }
+        return {
+          name: "ollama",
+          detail: `auto · ${s.ollamaBaseUrl || "http://localhost:11434"} · model=${s.ollamaModel || "llama3.1"}`,
+        };
+      }
+
+      function refreshProviderPill() {
+        const s = loadSettings();
+        const r = resolveProvider(s);
+        providerLabel.textContent = r.name;
+        providerPill.title = `Provider: ${r.name}\n${r.detail}\n(click gear to change)`;
+        providerPill.classList.toggle("warn", Boolean(r.warn));
+      }
+
+      function normalizeUrl(input) {
+        let u = (input || "").trim();
+        if (!u) return u;
+        if (!/^https?:\/\//i.test(u)) {
+          const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(u);
+          u = (isLocal ? "http://" : "https://") + u;
+        }
+        return u;
+      }
+
+      let appModel = null;
+      const tests = new Map();
+      const bugs = [];
+      const issues = [];
+      let analysisSummary = null;
+      let totalEvents = 0;
+      let maxSteps = 40;
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function shortJson(obj, max = 240) {
+        const s = JSON.stringify(obj);
+        if (!s) return "";
+        return s.length > max ? s.slice(0, max) + "…" : s;
+      }
+
+      function appendFeed(event) {
+        if (totalEvents === 0) feed.innerHTML = "";
+        totalEvents += 1;
+        feedCount.textContent = String(totalEvents);
+
+        const row = document.createElement("div");
+        row.className = "feed-row";
+        const time = event.timestamp.split("T")[1]?.replace("Z", "") ?? "";
+        const summary = summarize(event);
+        row.innerHTML =
+          `<div class="meta"><span class="badge ${event.type}">${event.type}</span>` +
+          `<span>step ${event.step}</span> · <span>${time}</span></div>` +
+          `<pre>${escapeHtml(summary)}</pre>`;
+        feed.prepend(row);
+        // Trim feed length to keep DOM manageable.
+        while (feed.childElementCount > 250) feed.removeChild(feed.lastChild);
+      }
+
+      function summarize(event) {
+        const p = event.payload || {};
+        switch (event.type) {
+          case "tool_call":
+            return `${p.name}(${shortJson(p.input, 200)})`;
+          case "tool_result":
+            return `← ${p.name}: ${shortJson(p.payload, 200)}`;
+          case "model_update":
+            return `${p.domain}: ${shortJson(p.entry, 180)}`;
+          case "test_added":
+            return `+ ${p.test?.id} ${p.test?.title}`;
+          case "test_issue_identified":
+            return `! ${p.issue?.testId} ${p.issue?.category}: ${p.issue?.reason}`;
+          case "corrected_test_generated":
+            return `↺ ${p.corrected?.corrected?.id} fixes ${p.corrected?.originalId}`;
+          case "analysis_complete":
+            return `analysis: total=${p.summary?.total} passed=${p.summary?.passed} failed=${p.summary?.failed} realBugs=${p.summary?.realBugs} falseFailures=${p.summary?.falseFailures}`;
+          case "test_started":
+            return `▶ ${p.test?.id} attempt ${p.test?.attempts}`;
+          case "test_passed":
+            return `✓ ${p.test?.id} passed in ${p.stepLogs?.length || 0} steps`;
+          case "test_failed":
+            return `✗ ${p.test?.id} failed at step ${p.failedAt}: ${p.error || ""}`;
+          case "test_retry":
+            return `↻ ${p.test?.id} will retry — ${p.error || ""}`;
+          case "bug_reported":
+            return `🐞 ${p.bug?.id} [${p.bug?.severity}] ${p.bug?.title}`;
+          case "run_start":
+            return `start url=${p.url} provider=${p.provider || "?"} model=${p.model || "?"} maxSteps=${p.maxSteps}`;
+          case "run_end":
+            return `end: ${p.stoppedReason} (steps=${p.steps}, tests=${p.tests}, bugs=${p.bugs})`;
+          case "run_error":
+            return `ERROR: ${p.error}`;
+          case "step_start":
+            return `→ step ${p.step}/${p.of}`;
+          default:
+            return shortJson(p);
+        }
+      }
+
+      function applyEvent(event) {
+        appendFeed(event);
+        const p = event.payload || {};
+        if (event.step) stepCounter.textContent = `step ${event.step}/${maxSteps}`;
+        switch (event.type) {
+          case "run_start":
+            maxSteps = p.maxSteps || maxSteps;
+            runStatus.textContent = "running";
+            runStatus.style.color = "var(--warn)";
+            break;
+          case "run_end":
+            runStatus.textContent = `done — ${p.stoppedReason}`;
+            runStatus.style.color = p.bugs > 0 ? "var(--bad)" : "var(--good)";
+            startBtn.disabled = false;
+            // Pull final summary for full model.
+            break;
+          case "run_error":
+            runStatus.textContent = "error";
+            runStatus.style.color = "var(--bad)";
+            startBtn.disabled = false;
+            break;
+          case "model_update":
+            // We re-render from a fetched summary periodically; here just echo.
+            break;
+          case "test_added":
+            tests.set(p.test.id, p.test);
+            renderTests();
+            break;
+          case "test_started":
+          case "test_passed":
+          case "test_failed":
+          case "test_retry":
+            if (p.test) {
+              tests.set(p.test.id, p.test);
+              renderTests();
+            }
+            break;
+          case "bug_reported":
+            bugs.push(p.bug);
+            renderBugs();
+            break;
+          case "test_issue_identified":
+            if (p.issue) {
+              issues.push(p.issue);
+              renderIssues();
+            }
+            break;
+          case "analysis_complete":
+            analysisSummary = p.summary;
+            renderAnalysisCounters();
+            break;
+        }
+      }
+
+      async function refreshSummary(id) {
+        try {
+          const r = await fetch(`/api/runs/${id}`);
+          if (!r.ok) return;
+          const data = await r.json();
+          if (data.result) {
+            appModel = data.result.model;
+            renderAppModel();
+            for (const t of data.result.tests || []) tests.set(t.id, t);
+            renderTests();
+            for (const b of data.result.bugs || []) {
+              if (!bugs.find((x) => x.id === b.id)) bugs.push(b);
+            }
+            renderBugs();
+            const a = data.result.analysis;
+            if (a) {
+              for (const issue of a.testIssues || []) {
+                if (!issues.find((x) => x.testId === issue.testId)) issues.push(issue);
+              }
+              renderIssues();
+              analysisSummary = a.summary;
+              renderAnalysisCounters();
+            }
+          }
+        } catch {}
+      }
+
+      function renderAppModel() {
+        if (!appModel) {
+          appModelEl.innerHTML = '<div class="empty">Model will populate.</div>';
+          return;
+        }
+        const m = appModel;
+        appModelEl.innerHTML = `
+          <dl class="kv">
+            <dt>start</dt><dd>${escapeHtml(m.startUrl)}</dd>
+            <dt>routes</dt><dd>${m.routes.length}</dd>
+            <dt>auth</dt><dd>login=${m.auth.hasLogin} signup=${m.auth.hasSignup} loggedIn=${m.auth.loggedIn}</dd>
+            <dt>entities</dt><dd>${m.entities.map((e) => escapeHtml(e.name)).join(", ") || "—"}</dd>
+            <dt>flows</dt><dd>${m.flows.map((f) => escapeHtml(f.name)).join(", ") || "—"}</dd>
+            <dt>forms</dt><dd>${m.forms.length}</dd>
+          </dl>
+          <details><summary>raw</summary><pre>${escapeHtml(JSON.stringify(m, null, 2))}</pre></details>
+        `;
+      }
+
+      function renderTests() {
+        testsCount.textContent = String(tests.size);
+        if (tests.size === 0) {
+          testsEl.innerHTML = '<div class="empty">No tests yet.</div>';
+          return;
+        }
+        const rows = [...tests.values()]
+          .map(
+            (t) => `
+          <tr>
+            <td>${escapeHtml(t.id)}</td>
+            <td>${escapeHtml(t.title)}</td>
+            <td>${escapeHtml(t.type)}</td>
+            <td>${escapeHtml(t.priority)}</td>
+            <td class="status-${t.status}">${escapeHtml(t.status)}</td>
+            <td>${t.attempts ?? 0}</td>
+          </tr>`
+          )
+          .join("");
+        testsEl.innerHTML = `
+          <table>
+            <thead>
+              <tr><th>id</th><th>title</th><th>type</th><th>pri</th><th>status</th><th>attempts</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+
+      function renderAnalysisCounters() {
+        if (!analysisSummary) return;
+        realBugsCount.textContent = String(analysisSummary.realBugs ?? 0);
+        falseFailuresCount.textContent = String(analysisSummary.falseFailures ?? 0);
+      }
+
+      function renderIssues() {
+        issuesCount.textContent = String(issues.length);
+        if (issues.length === 0) {
+          issuesEl.innerHTML =
+            '<div class="empty">No test issues yet — they appear after the analysis pass at end of run.</div>';
+          return;
+        }
+        issuesEl.innerHTML = issues
+          .map(
+            (i) => `
+            <div class="feed-row">
+              <div class="meta">
+                <span class="badge test_retry">${escapeHtml(i.testId)}</span>
+                <span style="color: var(--warn);">${escapeHtml(i.category)}</span>
+                ${escapeHtml(i.testTitle || "")}
+              </div>
+              <pre>${escapeHtml(i.reason)}\nfailed step ${i.failedStepIndex + 1}: ${escapeHtml(i.failedStep?.action || "")} ${escapeHtml(i.failedStep?.target || "")}\nerror: ${escapeHtml((i.error || "").slice(0, 200))}</pre>
+            </div>`
+          )
+          .join("");
+      }
+
+      function renderBugs() {
+        bugsCount.textContent = String(bugs.length);
+        if (bugs.length === 0) {
+          bugsEl.innerHTML = '<div class="empty">No bugs reported.</div>';
+          return;
+        }
+        bugsEl.innerHTML = bugs
+          .map(
+            (b) => `
+            <div class="feed-row">
+              <div class="meta">
+                <span class="badge bug_reported">${escapeHtml(b.id)}</span>
+                <span class="severity-${b.severity}">[${escapeHtml(b.severity)}]</span>
+                ${escapeHtml(b.title)}
+              </div>
+              <pre>${escapeHtml(b.actual || "")}\nexpected: ${escapeHtml(b.expected || "")}\nimpact: ${escapeHtml(b.impact || "")}</pre>
+            </div>`
+          )
+          .join("");
+      }
+
+      function reset() {
+        feed.innerHTML = '<div class="empty">Starting…</div>';
+        appModelEl.innerHTML = '<div class="empty">Model will populate.</div>';
+        testsEl.innerHTML = '<div class="empty">No tests yet.</div>';
+        bugsEl.innerHTML = '<div class="empty">No bugs reported.</div>';
+        issuesEl.innerHTML =
+          '<div class="empty">Test issues appear after the analysis pass.</div>';
+        feedCount.textContent = "0";
+        testsCount.textContent = "0";
+        bugsCount.textContent = "0";
+        issuesCount.textContent = "0";
+        realBugsCount.textContent = "0";
+        falseFailuresCount.textContent = "0";
+        appModel = null;
+        tests.clear();
+        bugs.length = 0;
+        issues.length = 0;
+        analysisSummary = null;
+        totalEvents = 0;
+      }
+
+      // ── Settings modal wiring ─────────────────────────────────────────────
+      function openSettings() {
+        const s = loadSettings();
+        const radio = document.querySelector(
+          `input[name="provider"][value="${s.preferred}"]`
+        );
+        if (radio) radio.checked = true;
+        $("anthropic-key").value = s.anthropicKey;
+        $("anthropic-model").value = s.anthropicModel;
+        $("openai-key").value = s.openaiKey;
+        $("openai-model").value = s.openaiModel;
+        $("ollama-url").value = s.ollamaBaseUrl;
+        $("ollama-model").value = s.ollamaModel;
+        updateResolvedHint();
+        if (typeof settingsModal.showModal === "function") {
+          settingsModal.showModal();
+        } else {
+          settingsModal.setAttribute("open", "");
+        }
+      }
+
+      function closeSettings() {
+        if (typeof settingsModal.close === "function") settingsModal.close();
+        else settingsModal.removeAttribute("open");
+      }
+
+      function readModalSettings() {
+        const checked = document.querySelector('input[name="provider"]:checked');
+        return {
+          preferred: checked ? checked.value : "auto",
+          anthropicKey: $("anthropic-key").value.trim(),
+          anthropicModel: $("anthropic-model").value.trim(),
+          openaiKey: $("openai-key").value.trim(),
+          openaiModel: $("openai-model").value.trim(),
+          ollamaBaseUrl: $("ollama-url").value.trim(),
+          ollamaModel: $("ollama-model").value.trim(),
+        };
+      }
+
+      function updateResolvedHint() {
+        const r = resolveProvider(readModalSettings());
+        $("resolved-name").textContent = r.name;
+        $("resolved-detail").textContent = r.detail ? ` — ${r.detail}` : "";
+      }
+
+      settingsBtn.addEventListener("click", openSettings);
+      $("settings-close").addEventListener("click", closeSettings);
+      $("settings-cancel").addEventListener("click", closeSettings);
+      $("settings-save").addEventListener("click", () => {
+        saveSettings(readModalSettings());
+        refreshProviderPill();
+        closeSettings();
+      });
+      $("settings-clear").addEventListener("click", () => {
+        if (!confirm("Clear all stored API keys and settings?")) return;
+        localStorage.removeItem(SETTINGS_KEY);
+        refreshProviderPill();
+        openSettings();
+      });
+      // Per-field reset buttons clear just that field — empty triggers the
+      // server-side default. Lets users fix a single bad model without losing
+      // their stored API key.
+      settingsModal.querySelectorAll("[data-reset]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-reset");
+          const input = id ? document.getElementById(id) : null;
+          if (input) {
+            input.value = "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.focus();
+          }
+        });
+      });
+      // Live-update the "Resolved" hint as the user edits the modal.
+      settingsModal.addEventListener("input", updateResolvedHint);
+      settingsModal.addEventListener("change", updateResolvedHint);
+      // Backdrop click closes (since we use <dialog>).
+      settingsModal.addEventListener("click", (e) => {
+        if (e.target === settingsModal) closeSettings();
+      });
+
+      refreshProviderPill();
+
+      // ── Run form ─────────────────────────────────────────────────────────
+      $("run-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        startBtn.disabled = true;
+        reset();
+        const settings = loadSettings();
+        const url = normalizeUrl($("url").value);
+        if (!url) {
+          runStatus.textContent = "url required";
+          runStatus.style.color = "var(--bad)";
+          startBtn.disabled = false;
+          return;
+        }
+        $("url").value = url; // reflect normalization back to the user
+        const body = {
+          url,
+          maxSteps: Number($("max-steps").value) || 40,
+          headless: $("headless").checked,
+          providerSettings: settings,
+        };
+        maxSteps = body.maxSteps;
+        runStatus.textContent = "starting…";
+        runStatus.style.color = "";
+        try {
+          const r = await fetch("/api/runs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${r.status}`);
+          }
+          const { id, provider } = await r.json();
+          if (provider) {
+            providerLabel.textContent = provider;
+          }
+          const es = new EventSource(`/api/runs/${id}/stream`);
+          es.onmessage = (msg) => {
+            try {
+              applyEvent(JSON.parse(msg.data));
+            } catch {}
+          };
+          es.addEventListener("done", () => {
+            es.close();
+            void refreshSummary(id);
+          });
+          es.onerror = () => {
+            // Server closes after run; fetch summary either way.
+            es.close();
+            void refreshSummary(id);
+          };
+        } catch (err) {
+          runStatus.textContent = `error: ${err.message}`;
+          runStatus.style.color = "var(--bad)";
+          startBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
