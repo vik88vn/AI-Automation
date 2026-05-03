@@ -1,314 +1,268 @@
-// Mock data — shaped to match what the deep-agent backend would emit, so the
-// store's contract works once the SSE wiring lands.
+// Mock data — shaped to match the backend's emit contract. All types live in
+// `src/types.ts`; this file only exports concrete instances.
 
-export type RunStatus = "running" | "completed" | "failed" | "queued";
-export type StepKind =
-  | "navigate"
-  | "click"
-  | "type"
-  | "extract"
-  | "screenshot"
-  | "run_test"
-  | "report_bug"
-  | "analysis";
-export type TestStatus = "passed" | "failed" | "running" | "queued";
-export type Severity = "critical" | "high" | "medium" | "low";
+import {
+  RunStatuses,
+  StepKinds,
+  StepResults,
+  TestStatuses,
+  TestTypes,
+  Priorities,
+  Severities,
+  FlowStatuses,
+  type AppModel,
+  type Bug,
+  type ExecutionStep,
+  type Run,
+  type RunSnapshot,
+  type TestCase,
+} from "@/types";
 
-export interface RunSummary {
-  id: string;
-  url: string;
-  status: RunStatus;
-  startedAt: string;
-  durationMs?: number;
-  testCount: number;
-  bugCount: number;
-}
-
-export interface ExecutionStep {
-  id: string;
-  step: number;
-  kind: StepKind;
-  target?: string;
-  reason?: string;
-  result: "success" | "failure";
-  detail?: string;
-  timestamp: string;
-}
-
-export interface TestCase {
-  id: string;
-  title: string;
-  type:
-    | "smoke"
-    | "navigation"
-    | "authentication"
-    | "form_validation"
-    | "crud"
-    | "error_handling"
-    | "regression";
-  priority: "high" | "medium" | "low";
-  status: TestStatus;
-  attempts: number;
-  expected: string;
-}
-
-export interface Bug {
-  id: string;
-  title: string;
-  severity: Severity;
-  description: string;
-  reproSteps: string[];
-  expected: string;
-  actual: string;
-  testId?: string;
-  url: string;
-}
+// Re-export the most-used domain types so existing imports keep working.
+// New code should import from "@/types" directly.
+export type {
+  AppModel,
+  Bug,
+  ExecutionStep,
+  Run,
+  RunSnapshot,
+  RunStatus,
+  Severity,
+  StepKind,
+  TestCase,
+  TestStatus,
+  Priority,
+} from "@/types";
 
 const now = Date.now();
 const ago = (sec: number) => new Date(now - sec * 1000).toISOString();
 
-export const MOCK_RUNS: RunSummary[] = [
-  {
-    id: "run_004",
-    url: "https://app.acme-shop.com",
-    status: "running",
-    startedAt: ago(34),
-    testCount: 8,
-    bugCount: 1,
+// ── Sample AppModel for the active mock run ──────────────────────────────────
+
+export const MOCK_APP_MODEL: AppModel = {
+  startUrl: "https://app.acme-shop.com",
+  routes: [
+    {
+      url: "https://app.acme-shop.com",
+      title: "Acme Shop — home",
+      status: 200,
+      notes: "auto: extracted",
+      visitedAt: ago(32),
+    },
+    {
+      url: "https://app.acme-shop.com/login",
+      title: "Sign in",
+      status: 200,
+      notes: "discovered via header link",
+      visitedAt: ago(27),
+    },
+    {
+      url: "https://app.acme-shop.com/dashboard",
+      title: "Dashboard",
+      status: 200,
+      notes: "auth required; reached after login",
+      visitedAt: ago(19),
+    },
+  ],
+  auth: {
+    hasLogin: true,
+    hasSignup: true,
+    hasLogout: true,
+    loginUrl: "https://app.acme-shop.com/login",
+    signupUrl: "https://app.acme-shop.com/signup",
+    loggedIn: true,
+    notes: "session cookie set after credential submit",
   },
-  {
-    id: "run_003",
-    url: "https://staging.atlas.dev",
-    status: "completed",
-    startedAt: ago(60 * 14),
-    durationMs: 3 * 60 * 1000,
-    testCount: 12,
-    bugCount: 2,
-  },
-  {
-    id: "run_002",
-    url: "https://demo.example.io/dashboard",
-    status: "failed",
-    startedAt: ago(60 * 60 * 2),
-    durationMs: 95 * 1000,
-    testCount: 5,
-    bugCount: 4,
-  },
-  {
-    id: "run_001",
-    url: "http://localhost:3000",
-    status: "completed",
-    startedAt: ago(60 * 60 * 24),
-    durationMs: 2 * 60 * 1000,
-    testCount: 9,
-    bugCount: 0,
-  },
-];
+  entities: [
+    {
+      name: "User",
+      fields: ["id", "email", "passwordHash", "createdAt"],
+      routes: ["/login", "/signup", "/account"],
+      notes: "auth flow exposes email + password fields",
+    },
+    {
+      name: "Product",
+      fields: ["id", "name", "price", "category", "inventory"],
+      routes: ["/products", "/admin/products"],
+      notes: "admin CRUD discovered",
+    },
+  ],
+  flows: [
+    {
+      name: "Sign in",
+      steps: [
+        "Click header 'Sign in'",
+        "Fill email + password",
+        "Submit form",
+        "Land on /dashboard",
+      ],
+      startUrl: "https://app.acme-shop.com",
+      status: FlowStatuses.Verified,
+    },
+    {
+      name: "Create product (admin)",
+      steps: ["Open /admin/products", "Fill name + price", "Submit"],
+      startUrl: "https://app.acme-shop.com/admin/products",
+      status: FlowStatuses.Discovered,
+    },
+  ],
+  forms: [
+    {
+      url: "https://app.acme-shop.com/login",
+      selector: "form#login",
+      method: "post",
+      submitSelector: "button[type='submit']",
+      purpose: "auth",
+      fields: [
+        { name: "email", type: "email", required: true, selector: "input[name='email']" },
+        { name: "password", type: "password", required: true, selector: "input[name='password']" },
+      ],
+    },
+  ],
+};
+
+// ── Steps for the live mock run ──────────────────────────────────────────────
 
 export const MOCK_STEPS: ExecutionStep[] = [
   {
     id: "s1",
     step: 1,
-    kind: "navigate",
+    kind: StepKinds.Navigate,
     target: "https://app.acme-shop.com",
     reason: "Reach the homepage and learn the layout.",
-    result: "success",
+    result: StepResults.Success,
     detail: "200 OK · 384ms",
     timestamp: ago(32),
   },
   {
     id: "s2",
     step: 2,
-    kind: "extract",
+    kind: StepKinds.Extract,
     target: "page",
     reason: "Discover routes, forms, and primary actions.",
-    result: "success",
+    result: StepResults.Success,
     detail: "headings=12 · links=24 · forms=2 · buttons=18",
     timestamp: ago(30),
   },
   {
     id: "s3",
     step: 3,
-    kind: "click",
+    kind: StepKinds.Click,
     target: "a[href='/login']",
     reason: "Begin auth flow exploration.",
-    result: "success",
+    result: StepResults.Success,
     detail: "navigated to /login (200)",
     timestamp: ago(27),
   },
   {
     id: "s4",
     step: 4,
-    kind: "type",
+    kind: StepKinds.Type,
     target: "input[name='email']",
     reason: "Smoke test login form with valid input.",
-    result: "success",
+    result: StepResults.Success,
     detail: 'value="qa+1@acme.test"',
     timestamp: ago(24),
   },
   {
     id: "s5",
     step: 5,
-    kind: "type",
+    kind: StepKinds.Type,
     target: "input[name='password']",
     reason: "Continue auth smoke test.",
-    result: "success",
+    result: StepResults.Success,
     detail: "value=••••••••••",
     timestamp: ago(22),
   },
   {
     id: "s6",
     step: 6,
-    kind: "click",
+    kind: StepKinds.Click,
     target: "button[type='submit']",
     reason: "Submit login form.",
-    result: "success",
+    result: StepResults.Success,
     detail: "navigated to /dashboard (200)",
     timestamp: ago(19),
   },
   {
     id: "s7",
     step: 7,
-    kind: "run_test",
+    kind: StepKinds.RunTest,
     target: "TC_002 — login with empty password rejects",
     reason: "Validate negative auth path.",
-    result: "failure",
-    detail: 'expected error toast, got navigation to /dashboard',
+    result: StepResults.Failure,
+    detail: "expected error toast, got navigation to /dashboard",
     timestamp: ago(14),
   },
   {
     id: "s8",
     step: 8,
-    kind: "report_bug",
+    kind: StepKinds.ReportBug,
     target: "BUG_001",
     reason: "Empty-password submit bypasses validation.",
-    result: "success",
+    result: StepResults.Success,
     detail: "severity=high · linked TC_002",
     timestamp: ago(12),
   },
   {
     id: "s9",
     step: 9,
-    kind: "extract",
+    kind: StepKinds.Extract,
     target: "page",
     reason: "Map dashboard widgets for further coverage.",
-    result: "success",
+    result: StepResults.Success,
     detail: "discovered 3 entities, 6 routes",
     timestamp: ago(8),
   },
   {
     id: "s10",
     step: 10,
-    kind: "run_test",
+    kind: StepKinds.RunTest,
     target: "TC_003 — primary nav opens each main route",
     reason: "Verify navigation smoke path.",
-    result: "success",
+    result: StepResults.Success,
     detail: "5/5 routes returned 200",
     timestamp: ago(4),
   },
 ];
 
+// ── Test cases ──────────────────────────────────────────────────────────────
+
 export const MOCK_TESTS: TestCase[] = [
-  {
-    id: "TC_001",
-    title: "Homepage loads with hero copy and CTA",
-    type: "smoke",
-    priority: "high",
-    status: "passed",
-    attempts: 1,
-    expected: "h1 visible within 5s, primary CTA enabled",
-  },
-  {
-    id: "TC_002",
-    title: "Login with empty password is rejected",
-    type: "form_validation",
-    priority: "high",
-    status: "failed",
-    attempts: 2,
-    expected: "Inline validation message; no navigation",
-  },
-  {
-    id: "TC_003",
-    title: "Primary nav opens each main route",
-    type: "navigation",
-    priority: "medium",
-    status: "passed",
-    attempts: 1,
-    expected: "All 5 routes return 200 with no console errors",
-  },
-  {
-    id: "TC_004",
-    title: "Create new product via /admin/products",
-    type: "crud",
-    priority: "high",
-    status: "running",
-    attempts: 1,
-    expected: "Item appears in list after submit",
-  },
-  {
-    id: "TC_005",
-    title: "Logout clears session and redirects to /",
-    type: "authentication",
-    priority: "medium",
-    status: "queued",
-    attempts: 0,
-    expected: "Cookie cleared; navigation to home",
-  },
-  {
-    id: "TC_006",
-    title: "Search returns relevant results within 2s",
-    type: "smoke",
-    priority: "low",
-    status: "passed",
-    attempts: 1,
-    expected: "Results visible; no skeleton after 2s",
-  },
-  {
-    id: "TC_007",
-    title: "404 page renders for unknown route",
-    type: "error_handling",
-    priority: "medium",
-    status: "passed",
-    attempts: 1,
-    expected: "404 status code and friendly UI",
-  },
-  {
-    id: "TC_008",
-    title: "Cart total updates when quantity changes",
-    type: "regression",
-    priority: "medium",
-    status: "queued",
-    attempts: 0,
-    expected: "Subtotal updates without page reload",
-  },
+  { id: "TC_001", title: "Homepage loads with hero copy and CTA", type: TestTypes.Smoke, priority: Priorities.High, status: TestStatuses.Passed, attempts: 1, expected: "h1 visible within 5s, primary CTA enabled" },
+  { id: "TC_002", title: "Login with empty password is rejected", type: TestTypes.FormValidation, priority: Priorities.High, status: TestStatuses.Failed, attempts: 2, expected: "Inline validation message; no navigation" },
+  { id: "TC_003", title: "Primary nav opens each main route", type: TestTypes.Navigation, priority: Priorities.Medium, status: TestStatuses.Passed, attempts: 1, expected: "All 5 routes return 200 with no console errors" },
+  { id: "TC_004", title: "Create new product via /admin/products", type: TestTypes.Crud, priority: Priorities.High, status: TestStatuses.Running, attempts: 1, expected: "Item appears in list after submit" },
+  { id: "TC_005", title: "Logout clears session and redirects to /", type: TestTypes.Authentication, priority: Priorities.Medium, status: TestStatuses.Queued, attempts: 0, expected: "Cookie cleared; navigation to home" },
+  { id: "TC_006", title: "Search returns relevant results within 2s", type: TestTypes.Smoke, priority: Priorities.Low, status: TestStatuses.Passed, attempts: 1, expected: "Results visible; no skeleton after 2s" },
+  { id: "TC_007", title: "404 page renders for unknown route", type: TestTypes.ErrorHandling, priority: Priorities.Medium, status: TestStatuses.Passed, attempts: 1, expected: "404 status code and friendly UI" },
+  { id: "TC_008", title: "Cart total updates when quantity changes", type: TestTypes.Regression, priority: Priorities.Medium, status: TestStatuses.Queued, attempts: 0, expected: "Subtotal updates without page reload" },
 ];
+
+// ── Bugs ────────────────────────────────────────────────────────────────────
 
 export const MOCK_BUGS: Bug[] = [
   {
     id: "BUG_001",
     title: "Login form accepts empty password and navigates to dashboard",
-    severity: "high",
-    description:
-      "Submitting the login form with a non-empty email and an empty password navigates the user to /dashboard instead of surfacing a validation error.",
+    severity: Severities.High,
+    description: "Submitting the login form with a non-empty email and an empty password navigates the user to /dashboard instead of surfacing a validation error.",
     reproSteps: [
       "Open https://app.acme-shop.com/login",
       "Fill email with qa+1@acme.test",
       "Leave password empty",
       "Click submit",
     ],
-    expected:
-      'Inline validation "Password is required"; user remains on /login.',
-    actual:
-      "Form submits successfully (200) and the app navigates to /dashboard with a partial session.",
+    expected: 'Inline validation "Password is required"; user remains on /login.',
+    actual: "Form submits successfully (200) and the app navigates to /dashboard with a partial session.",
     testId: "TC_002",
     url: "https://app.acme-shop.com/login",
   },
   {
     id: "BUG_002",
     title: "Primary CTA briefly clickable while disabled (race condition)",
-    severity: "medium",
-    description:
-      "On slow networks the hero CTA is mounted in an enabled state for ~150ms before the disabled attribute is applied.",
+    severity: Severities.Medium,
+    description: "On slow networks the hero CTA is mounted in an enabled state for ~150ms before the disabled attribute is applied.",
     reproSteps: [
       "Throttle network to 'Fast 3G'",
       "Navigate to https://app.acme-shop.com",
@@ -321,16 +275,87 @@ export const MOCK_BUGS: Bug[] = [
   {
     id: "BUG_003",
     title: "/admin/products returns 500 on POST without category",
-    severity: "critical",
-    description:
-      "Submitting the product creation form without a category yields an unhandled server error instead of a validation response.",
-    reproSteps: [
-      "Open /admin/products",
-      "Fill name and price only",
-      "Click Save",
-    ],
+    severity: Severities.Critical,
+    description: "Submitting the product creation form without a category yields an unhandled server error instead of a validation response.",
+    reproSteps: ["Open /admin/products", "Fill name and price only", "Click Save"],
     expected: "400 with field-level error message.",
     actual: "500 Internal Server Error; product is not created.",
     url: "https://app.acme-shop.com/admin/products",
   },
 ];
+
+// ── Pre-built run history (so the right sidebar isn't empty on first load) ───
+
+const archived = (
+  id: string,
+  url: string,
+  status: Run["status"],
+  startedSec: number,
+  endedSec: number | null,
+  snapshot: RunSnapshot
+): Run => ({
+  id,
+  url,
+  startedAt: ago(startedSec),
+  endedAt: endedSec !== null ? ago(endedSec) : null,
+  status,
+  snapshot,
+});
+
+export const MOCK_RUN_HISTORY: Run[] = [
+  archived(
+    "run_003",
+    "https://staging.atlas.dev",
+    RunStatuses.Completed,
+    60 * 14,
+    60 * 11,
+    {
+      steps: MOCK_STEPS.slice(0, 6),
+      testCases: MOCK_TESTS.slice(0, 6),
+      bugs: MOCK_BUGS.slice(0, 1),
+      appModel: { ...MOCK_APP_MODEL, startUrl: "https://staging.atlas.dev" },
+    }
+  ),
+  archived(
+    "run_002",
+    "https://demo.example.io/dashboard",
+    RunStatuses.Failed,
+    60 * 60 * 2,
+    60 * 60 * 2 - 95,
+    {
+      steps: MOCK_STEPS.slice(0, 4),
+      testCases: MOCK_TESTS.slice(0, 3),
+      bugs: MOCK_BUGS,
+      appModel: { ...MOCK_APP_MODEL, startUrl: "https://demo.example.io/dashboard" },
+    }
+  ),
+  archived(
+    "run_001",
+    "http://localhost:3000",
+    RunStatuses.Completed,
+    60 * 60 * 24,
+    60 * 60 * 24 - 120,
+    {
+      steps: MOCK_STEPS,
+      testCases: MOCK_TESTS,
+      bugs: [],
+      appModel: { ...MOCK_APP_MODEL, startUrl: "http://localhost:3000" },
+    }
+  ),
+];
+
+// The currently "live" run that the dashboard shows when you arrive from Home
+// without picking one yourself.
+export const MOCK_ACTIVE_RUN: Run = {
+  id: "run_004",
+  url: "https://app.acme-shop.com",
+  startedAt: ago(34),
+  endedAt: null,
+  status: RunStatuses.Running,
+  snapshot: {
+    steps: MOCK_STEPS,
+    testCases: MOCK_TESTS,
+    bugs: MOCK_BUGS,
+    appModel: MOCK_APP_MODEL,
+  },
+};

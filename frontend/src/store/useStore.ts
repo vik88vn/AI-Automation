@@ -1,127 +1,110 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
 import {
-  MOCK_BUGS,
-  MOCK_RUNS,
-  MOCK_STEPS,
-  MOCK_TESTS,
+  MOCK_ACTIVE_RUN,
+} from "@/lib/mockData";
+import {
+  RunStatuses,
+  StepKinds,
+  StepResults,
+  emptyAppModel,
+  type AppModel,
   type Bug,
   type ExecutionStep,
+  type Run,
   type RunStatus,
-  type RunSummary,
   type StepKind,
   type TestCase,
-} from "@/lib/mockData";
+} from "@/types";
 
-interface State {
-  status: RunStatus;
-  currentRunId: string | null;
+// ─────────────────────────────────────────────────────────────────────────────
+// useStore
+//
+// Live-display state: what the dashboard renders for whichever run is active
+// right now. Owned exclusively by `useSessionStore`, which calls `hydrate()`
+// when the user picks a run and `reset()` when they leave the dashboard.
+//
+// This store deliberately does NOT track run history, view, or active id —
+// those are session concerns. Keeping them separate prevents render churn:
+// switching tabs doesn't notify history-list subscribers, and vice versa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface DisplayState {
   url: string;
-  runsHistory: RunSummary[];
+  status: RunStatus;
   steps: ExecutionStep[];
   testCases: TestCase[];
   bugs: Bug[];
+  appModel: AppModel;
 }
 
-interface Actions {
-  setUrl: (url: string) => void;
-  startRun: (url: string) => void;
-  stopRun: () => void;
-  selectRun: (id: string) => void;
-  newRun: () => void;
-  // Mock streaming — appends a synthetic step every tick to demo the live feel.
-  pushStep: (kind: StepKind, target: string, reason: string) => void;
+interface DisplayActions {
+  setUrl(url: string): void;
+  setStatus(status: RunStatus): void;
+  hydrate(run: Run): void;
+  reset(): void;
+  pushStep(kind: StepKind, target: string, reason: string): void;
 }
 
-const initialRun = MOCK_RUNS[0];
+type DisplayStore = DisplayState & DisplayActions;
 
-export const useStore = create<State & Actions>((set, get) => ({
-  status: initialRun?.status ?? "queued",
-  currentRunId: initialRun?.id ?? null,
-  url: initialRun?.url ?? "",
-  runsHistory: MOCK_RUNS,
-  steps: MOCK_STEPS,
-  testCases: MOCK_TESTS,
-  bugs: MOCK_BUGS,
+const initialFromActive = (): DisplayState => ({
+  url: MOCK_ACTIVE_RUN.url,
+  status: MOCK_ACTIVE_RUN.status,
+  steps: MOCK_ACTIVE_RUN.snapshot.steps,
+  testCases: MOCK_ACTIVE_RUN.snapshot.testCases,
+  bugs: MOCK_ACTIVE_RUN.snapshot.bugs,
+  appModel: MOCK_ACTIVE_RUN.snapshot.appModel,
+});
 
-  setUrl: (url) => set({ url }),
+const emptyDisplay = (url = ""): DisplayState => ({
+  url,
+  status: RunStatuses.Queued,
+  steps: [],
+  testCases: [],
+  bugs: [],
+  appModel: { ...emptyAppModel(), startUrl: url },
+});
 
-  startRun: (url) => {
-    if (!url.trim()) return;
-    const id = `run_${String(get().runsHistory.length + 1).padStart(3, "0")}`;
-    const summary: RunSummary = {
-      id,
-      url,
-      status: "running",
-      startedAt: new Date().toISOString(),
-      testCount: 0,
-      bugCount: 0,
-    };
-    set((s) => ({
-      currentRunId: id,
-      status: "running",
-      url,
-      runsHistory: [summary, ...s.runsHistory],
-      steps: [
-        {
-          id: `${id}_s1`,
-          step: 1,
-          kind: "navigate",
-          target: url,
-          reason: "Open the target URL.",
-          result: "success",
-          detail: "queued",
+export const useStore = create<DisplayStore>()(
+  persist(
+    (set, get) => ({
+      ...initialFromActive(),
+
+      setUrl: (url) => set({ url }),
+
+      setStatus: (status) => set({ status }),
+
+      hydrate: (run) =>
+        set({
+          url: run.url,
+          status: run.status,
+          steps: run.snapshot.steps,
+          testCases: run.snapshot.testCases,
+          bugs: run.snapshot.bugs,
+          appModel: run.snapshot.appModel,
+        }),
+
+      reset: () => set(emptyDisplay()),
+
+      pushStep: (kind, target, reason) => {
+        const next = get().steps.length + 1;
+        const step: ExecutionStep = {
+          id: `live_s${next}_${Date.now()}`,
+          step: next,
+          kind,
+          target,
+          reason,
+          result: Math.random() > 0.15 ? StepResults.Success : StepResults.Failure,
+          detail: kind === StepKinds.Extract ? "discovered new entries" : undefined,
           timestamp: new Date().toISOString(),
-        },
-      ],
-      testCases: [],
-      bugs: [],
-    }));
-  },
-
-  stopRun: () =>
-    set((s) => ({
-      status: "completed",
-      runsHistory: s.runsHistory.map((r) =>
-        r.id === s.currentRunId ? { ...r, status: "completed" as RunStatus } : r
-      ),
-    })),
-
-  selectRun: (id) =>
-    set((s) => {
-      const run = s.runsHistory.find((r) => r.id === id);
-      if (!run) return s;
-      // For the mock we keep the same demo data; real wiring would fetch
-      // the run's events / tests / bugs from the backend.
-      return {
-        currentRunId: id,
-        status: run.status,
-        url: run.url,
-      };
+        };
+        set((s) => ({ steps: [...s.steps, step] }));
+      },
     }),
-
-  newRun: () =>
-    set({
-      currentRunId: null,
-      status: "queued",
-      url: "",
-      steps: [],
-      testCases: [],
-      bugs: [],
-    }),
-
-  pushStep: (kind, target, reason) =>
-    set((s) => {
-      const next = s.steps.length + 1;
-      const step: ExecutionStep = {
-        id: `${s.currentRunId ?? "live"}_s${next}`,
-        step: next,
-        kind,
-        target,
-        reason,
-        result: Math.random() > 0.15 ? "success" : "failure",
-        detail: kind === "extract" ? "discovered new entries" : undefined,
-        timestamp: new Date().toISOString(),
-      };
-      return { steps: [...s.steps, step] };
-    }),
-}));
+    {
+      name: 'qa-engineer-storage',
+    }
+  )
+);
