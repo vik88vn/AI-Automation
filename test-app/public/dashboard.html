@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — BugShop</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="bug-banner">
+    DEMO APP: This site contains intentional bugs for QA agent testing.
+  </div>
+
+  <nav>
+    <a href="/" class="logo">BugShop</a>
+    <a href="/products.html">Products</a>
+    <a href="/admin.html">Admin</a>
+    <div class="right">
+      <a href="/" id="logout">Sign out</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Dashboard</h1>
+    <p>Quick overview of your store.</p>
+
+    <div class="stats" id="stats">
+      <div class="stat">
+        <div class="value loading" id="totalProducts">…</div>
+        <div class="label">Total products</div>
+      </div>
+      <div class="stat">
+        <div class="value loading" id="lowStock">…</div>
+        <div class="label">Low stock</div>
+      </div>
+      <div class="stat">
+        <div class="value loading" id="outOfStock">…</div>
+        <div class="label">Out of stock</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quick actions</h2>
+      <div class="flex">
+        <a href="/products.html" class="btn">View products</a>
+        <a href="/admin.html" class="btn btn-secondary">Add new product</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // BUG #7 (LOW): Slow stats endpoint (~3-4s) without skeleton state
+    // beyond the placeholder dots. The agent's perf metrics should flag this.
+    fetch("/api/dashboard/stats")
+      .then((r) => r.json())
+      .then((d) => {
+        document.getElementById("totalProducts").textContent = d.totalProducts;
+        document.getElementById("totalProducts").classList.remove("loading");
+        document.getElementById("lowStock").textContent = d.lowStock;
+        document.getElementById("lowStock").classList.remove("loading");
+        document.getElementById("outOfStock").textContent = d.outOfStock;
+        document.getElementById("outOfStock").classList.remove("loading");
+      });
+
+    document.getElementById("logout").addEventListener("click", async (e) => {
+      e.preventDefault();
+      await fetch("/api/logout", { method: "POST" });
+      window.location.href = "/";
+    });
+  </script>
+</body>
+</html>

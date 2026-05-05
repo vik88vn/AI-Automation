@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Products — BugShop</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="bug-banner">
+    DEMO APP: This site contains intentional bugs for QA agent testing.
+  </div>
+
+  <nav>
+    <a href="/" class="logo">BugShop</a>
+    <a href="/products.html">Products</a>
+    <a href="/admin.html">Admin</a>
+    <div class="right">
+      <a href="/login.html">Sign in</a>
+      <a href="/signup.html" class="btn">Sign up</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Products</h1>
+    <p>Browse our catalog.</p>
+
+    <div class="card">
+      <form id="searchForm" style="display: flex; gap: 12px;">
+        <input
+          type="search"
+          id="q"
+          name="q"
+          placeholder="Search products…"
+          style="flex: 1"
+        />
+        <button type="submit">Search</button>
+      </form>
+    </div>
+
+    <div id="msg"></div>
+    <div class="product-grid" id="grid"></div>
+  </main>
+
+  <script>
+    const grid = document.getElementById("grid");
+    const msg = document.getElementById("msg");
+
+    async function loadProducts(q = "") {
+      msg.innerHTML = "";
+      const url = q ? `/api/products?q=${encodeURIComponent(q)}` : "/api/products";
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          // BUG #6 surfaces here as a 500 error from the backend's regex bug
+          msg.innerHTML = `<div class="error">Search failed (HTTP ${res.status})</div>`;
+          grid.innerHTML = "";
+          return;
+        }
+        const data = await res.json();
+        grid.innerHTML = data.products
+          .map(
+            (p) => `
+            <div class="product">
+              <div class="category">${p.category}</div>
+              <div class="name">${p.name}</div>
+              <div class="price">$${p.price.toFixed(2)}</div>
+              <div class="muted" style="font-size:12px;margin-bottom:8px;">
+                ${p.inventory > 0 ? `${p.inventory} in stock` : "Out of stock"}
+              </div>
+              <button
+                class="add-to-cart"
+                data-id="${p.id}"
+                ${p.inventory <= 0 ? "disabled" : ""}
+              >Add to cart</button>
+            </div>`
+          )
+          .join("");
+        attachAddToCart();
+      } catch (err) {
+        msg.innerHTML = '<div class="error">Network error.</div>';
+      }
+    }
+
+    // BUG #3 (MEDIUM): Add-to-cart button is briefly clickable while disabled
+    // (race condition). The disabled attribute is applied via JS *after* the
+    // button is mounted, leaving a ~150ms window where a fast click submits
+    // an out-of-stock item.
+    function attachAddToCart() {
+      document.querySelectorAll(".add-to-cart").forEach((btn) => {
+        // Simulated race: re-enable then disable shortly after
+        if (btn.disabled) {
+          btn.disabled = false;
+          setTimeout(() => {
+            btn.disabled = true;
+          }, 150);
+        }
+        btn.addEventListener("click", async (e) => {
+          const id = btn.getAttribute("data-id");
+          try {
+            const res = await fetch("/api/cart/add", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ productId: id, quantity: 1 }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              msg.innerHTML = '<div class="success">Added to cart.</div>';
+            } else {
+              msg.innerHTML = `<div class="error">${data.error || "Failed"}</div>`;
+            }
+          } catch (err) {
+            msg.innerHTML = '<div class="error">Network error.</div>';
+          }
+        });
+      });
+    }
+
+    document.getElementById("searchForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = document.getElementById("q").value.trim();
+      loadProducts(q);
+    });
+
+    loadProducts();
+  </script>
+</body>
+</html>

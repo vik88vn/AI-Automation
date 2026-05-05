@@ -1,0 +1,14 @@
+{
+  "name": "bugshop-test-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Intentionally buggy e-commerce demo for QA agent case study",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

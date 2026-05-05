@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign up — BugShop</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="bug-banner">
+    DEMO APP: This site contains intentional bugs for QA agent testing.
+  </div>
+
+  <nav>
+    <a href="/" class="logo">BugShop</a>
+    <a href="/products.html">Products</a>
+    <a href="/admin.html">Admin</a>
+    <div class="right">
+      <a href="/login.html">Sign in</a>
+    </div>
+  </nav>
+
+  <main style="max-width: 420px;">
+    <div class="card">
+      <h1>Create account</h1>
+      <p>Join BugShop in seconds.</p>
+
+      <div id="msg"></div>
+
+      <form id="signup" method="post" action="/api/signup">
+        <div class="form-group">
+          <label for="name">Full name</label>
+          <input type="text" id="name" name="name" placeholder="Jane Doe" />
+        </div>
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" placeholder="••••••••" />
+        </div>
+        <button type="submit" id="submit">Create account</button>
+      </form>
+
+      <p class="muted center" style="margin-top: 16px; font-size: 13px;">
+        Already a member? <a href="/login.html">Sign in</a>
+      </p>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById("signup");
+    const msg = document.getElementById("msg");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msg.innerHTML = "";
+
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      if (!email || !password) {
+        msg.innerHTML = '<div class="error">Email and password required</div>';
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, password }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          window.location.href = data.redirect || "/dashboard.html";
+        } else {
+          msg.innerHTML = `<div class="error">${data.error || "Sign up failed"}</div>`;
+        }
+      } catch (err) {
+        msg.innerHTML = '<div class="error">Network error. Try again.</div>';
+      }
+    });
+  </script>
+</body>
+</html>

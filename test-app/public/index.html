@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BugShop — Demo Store</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="bug-banner">
+    DEMO APP: This site contains intentional bugs for QA agent testing.
+  </div>
+
+  <nav>
+    <a href="/" class="logo">BugShop</a>
+    <a href="/products.html">Products</a>
+    <a href="/admin.html">Admin</a>
+    <div class="right">
+      <a href="/login.html">Sign in</a>
+      <a href="/signup.html" class="btn">Sign up</a>
+    </div>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <h1>Welcome to BugShop</h1>
+      <p>Premium tech accessories. Lightning-fast delivery.</p>
+      <a href="/products.html" class="btn" id="hero-cta">Browse products</a>
+    </div>
+
+    <div class="card">
+      <h2>Featured</h2>
+      <p>Loading featured products…</p>
+      <div class="product-grid" id="featured"></div>
+    </div>
+  </main>
+
+  <script>
+    // Load featured products
+    fetch("/api/products")
+      .then((r) => r.json())
+      .then((data) => {
+        const grid = document.getElementById("featured");
+        grid.innerHTML = data.products
+          .slice(0, 3)
+          .map(
+            (p) => `
+            <div class="product">
+              <div class="category">${p.category}</div>
+              <div class="name">${p.name}</div>
+              <div class="price">$${p.price.toFixed(2)}</div>
+              <a href="/products.html" class="btn btn-secondary" style="font-size:13px">View</a>
+            </div>`
+          )
+          .join("");
+      })
+      .catch(() => {
+        document.getElementById("featured").innerHTML =
+          '<p class="error">Failed to load products.</p>';
+      });
+  </script>
+</body>
+</html>
