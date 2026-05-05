@@ -171,7 +171,7 @@ function RunRow({ run, active, onClick }: RunRowProps) {
         >
           {run.status}
         </Badge>
-        <span className="ml-auto">{relativeTime(run.startedAt)}</span>
+        <span className="ml-auto">{run.startedAt ? relativeTime(run.startedAt) : "—"}</span>
       </div>
 
       {(tests > 0 || bugs > 0) && (

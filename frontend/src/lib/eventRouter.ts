@@ -20,7 +20,10 @@ import {
   StepKinds,
   StepResults,
   Severities,
+  type BugEvidence,
   type ExecutionStep,
+  type FailureContext,
+  type PerformanceMetrics,
   type RunStatus,
   type StepKind,
   type TestCase,
@@ -154,6 +157,8 @@ function toFrontendTest(t: BackendTest): TestCase {
     status: (t.status as TestCase["status"]) ?? "queued",
     attempts: t.attempts ?? 0,
     expected: t.expected ?? "",
+    lastError: t.lastError,
+    failureContext: t.failureContext as FailureContext | undefined,
   };
 }
 
@@ -168,6 +173,15 @@ function toFrontendBug(b: BackendBug): Bug {
     actual: b.actual ?? "",
     testId: b.testId,
     url: b.url ?? "",
+    evidence: b.evidence
+      ? ({
+          error: b.evidence.error ?? "",
+          logs: b.evidence.logs,
+          stackTrace: b.evidence.stackTrace,
+          errorType: b.evidence.errorType,
+          selectorAnalysis: b.evidence.selectorAnalysis,
+        } as BugEvidence)
+      : undefined,
   };
 }
 
@@ -196,7 +210,8 @@ export function routeAgentEvent(event: AgentEvent, callbacks: RouterCallbacks): 
       const detail = p.payload?.error
         ? p.payload.error.slice(0, 160)
         : describeToolResult(p);
-      store.updateLastStepResult(result, detail);
+      const metrics = (p.payload?.metrics as PerformanceMetrics | undefined) ?? undefined;
+      store.updateLastStepResult(result, detail, metrics);
       break;
     }
 
@@ -262,6 +277,16 @@ export function routeAgentEvent(event: AgentEvent, callbacks: RouterCallbacks): 
       callbacks.onError(message);
       store.setStatus(RunStatuses.Failed);
       callbacks.onEnd(RunStatuses.Failed);
+      break;
+    }
+
+    case "perf_metrics": {
+      // Performance metrics can be emitted separately or as part of tool_result.
+      // If emitted separately, update the last step's metrics.
+      const metrics = event.payload as unknown as PerformanceMetrics | undefined;
+      if (metrics) {
+        store.updateLastStepResult(StepResults.Success, undefined, metrics);
+      }
       break;
     }
 

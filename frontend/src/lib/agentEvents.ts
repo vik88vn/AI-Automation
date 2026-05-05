@@ -22,7 +22,11 @@ export type AgentEventType =
   | "analysis_complete"
   | "log"
   | "run_end"
-  | "run_error";
+  | "run_error"
+  | "auth_required"
+  | "auth_response"
+  | "auth_submitted"
+  | "perf_metrics";
 
 export interface AgentEvent {
   type: AgentEventType;
@@ -57,7 +61,15 @@ export interface BackendToolCallPayload {
 export interface BackendToolResultPayload {
   id: string;
   name: BackendToolName;
-  payload: { ok?: boolean; error?: string; data?: unknown; durationMs?: number; url?: string };
+  payload: {
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+    durationMs?: number;
+    url?: string;
+    metrics?: unknown;
+    failureContext?: unknown;
+  };
 }
 
 export interface BackendTest {
@@ -69,6 +81,19 @@ export interface BackendTest {
   attempts: number;
   expected?: string;
   lastError?: string;
+  failureContext?: {
+    errorType: string;
+    errorMessage: string;
+    stackTrace?: string;
+    failurePhase: "navigate" | "extract" | "click" | "type" | "assertion";
+    selectorValid: boolean;
+    pageState?: {
+      url: string;
+      title: string;
+      consoleErrors: string[];
+      networkErrors: string[];
+    };
+  };
 }
 
 export interface BackendBug {
@@ -81,4 +106,15 @@ export interface BackendBug {
   actual?: string;
   url?: string;
   testId?: string;
+  evidence?: {
+    error: string;
+    logs?: unknown;
+    stackTrace?: string;
+    errorType?: string;
+    selectorAnalysis?: {
+      selector: string;
+      found: boolean;
+      visible: boolean;
+    };
+  };
 }

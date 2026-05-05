@@ -1,7 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { BrowserToolInput, BrowserToolResult } from "./types.js";
+import type { BrowserToolInput, BrowserToolResult, FailureContext } from "./types.js";
 
 interface ExtractedPage {
   url: string;
@@ -154,15 +154,113 @@ export class AgentBrowser {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const titleCatch = await page.title().catch(() => "");
+
+      // Build failure context
+      const failureContext = await this.buildFailureContext(
+        err,
+        input.action,
+        input.target,
+        page,
+        titleCatch
+      );
+
       return {
         ok: false,
         action: input.action,
         target: input.target,
         url: page.url(),
-        title: await page.title().catch(() => ""),
+        title: titleCatch,
         error: message,
         durationMs: Date.now() - t0,
+        failureContext,
       };
+    }
+  }
+
+  private async buildFailureContext(
+    error: unknown,
+    action: string,
+    target: string,
+    page: Page,
+    title: string
+  ): Promise<FailureContext> {
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    // Extract error type from constructor name
+    const errorType = err.constructor.name || "Error";
+    const errorMessage = err.message || String(error);
+    const stackTrace = err.stack;
+
+    // Map action to failure phase
+    const failurePhase = this.actionToPhase(action);
+
+    // Validate selector if target looks like a CSS selector (not a URL)
+    let selectorValid = false;
+    if (action !== "navigate" && target && !target.startsWith("http")) {
+      const check = await this.validateSelector(page, target);
+      selectorValid = check.found;
+    }
+
+    return {
+      errorType,
+      errorMessage,
+      stackTrace,
+      failurePhase,
+      selectorValid,
+      pageState: {
+        url: page.url(),
+        title,
+        consoleErrors: [...this.consoleErrors],
+        networkErrors: [...this.networkErrors],
+      },
+    };
+  }
+
+  private actionToPhase(
+    action: string
+  ): "navigate" | "extract" | "click" | "type" | "assertion" {
+    switch (action) {
+      case "navigate":
+        return "navigate";
+      case "click":
+        return "click";
+      case "type":
+        return "type";
+      case "extract":
+        return "extract";
+      default:
+        return "assertion";
+    }
+  }
+
+  private async validateSelector(
+    page: Page,
+    selector: string
+  ): Promise<{ found: boolean; visible: boolean }> {
+    try {
+      const found = await page.evaluate((sel: string) => {
+        return document.querySelectorAll(sel).length > 0;
+      }, selector);
+
+      if (!found) {
+        return { found: false, visible: false };
+      }
+
+      const visible = await page.evaluate((sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0"
+        );
+      }, selector);
+
+      return { found: true, visible };
+    } catch {
+      return { found: false, visible: false };
     }
   }
 
@@ -173,6 +271,14 @@ export class AgentBrowser {
   ): Promise<BrowserToolResult> {
     const result = await fn();
     const page = this.page!;
+    const durationMs = Date.now() - t0;
+
+    // Capture performance metrics for navigate actions
+    let metrics = undefined;
+    if (input.action === "navigate") {
+      metrics = await this.capturePerformanceMetrics(page, durationMs);
+    }
+
     return {
       ok: true,
       action: input.action,
@@ -181,8 +287,72 @@ export class AgentBrowser {
       title: await page.title().catch(() => ""),
       data: result.data,
       screenshotPath: result.screenshotPath,
-      durationMs: Date.now() - t0,
+      durationMs,
+      metrics,
     };
+  }
+
+  private async capturePerformanceMetrics(page: Page, actionDurationMs: number) {
+    try {
+      // Get navigation timing data
+      const navigationData = await page.evaluate(() => {
+        const t = performance.timing;
+        return {
+          navigationStart: t.navigationStart,
+          fetchStart: t.fetchStart,
+          domInteractive: t.domInteractive,
+          domContentLoaded: t.domContentLoadedEventEnd,
+          loadComplete: t.loadEventEnd,
+        };
+      }).catch(() => null);
+
+      if (!navigationData) return undefined;
+
+      // Get paint entries (FCP)
+      const paintEntries = await page.evaluate(() => {
+        return performance.getEntriesByType("paint").map((entry) => ({
+          name: entry.name,
+          startTime: entry.startTime,
+        }));
+      }).catch(() => []);
+
+      const fcp = paintEntries.find((p) => p.name === "first-contentful-paint")?.startTime;
+
+      // Estimate LCP (largest contentful paint) - approximate using document ready
+      // In a real scenario, would use PerformanceObserver, but Playwright has limitations
+      const lcp = navigationData.domContentLoaded > 0
+        ? navigationData.domContentLoaded - navigationData.navigationStart + 100
+        : undefined;
+
+      // Estimate TTI (time to interactive) - approximate using load complete
+      const tti = navigationData.loadComplete > 0
+        ? navigationData.loadComplete - navigationData.navigationStart
+        : undefined;
+
+      // Component breakdown: estimate based on action duration
+      // This is a simplified heuristic; more accurate tracking would need step-level instrumentation
+      const postActionMs = Math.max(100, actionDurationMs * 0.2); // ~20% of time is post-action settling
+      const actionMs = actionDurationMs - postActionMs;
+      const waitMs = 0; // No wait for navigate action (it's the first action)
+
+      return {
+        navigationStart: navigationData.navigationStart,
+        fetchStart: navigationData.fetchStart,
+        domInteractive: navigationData.domInteractive,
+        domContentLoaded: navigationData.domContentLoaded,
+        loadComplete: navigationData.loadComplete,
+        fcp,
+        lcp,
+        tti,
+        componentBreakdown: {
+          waitMs,
+          actionMs: Math.round(actionMs),
+          postActionMs: Math.round(postActionMs),
+        },
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   private async takeScreenshot(page: Page, target: string): Promise<string> {

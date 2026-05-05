@@ -1,6 +1,8 @@
 // Internal application model that the agent maintains across iterations.
 // Updated via the record_observation tool; never overwritten wholesale.
 
+import { TestStatus } from "../types";
+
 export interface RouteEntry {
   url: string;
   title: string;
@@ -86,6 +88,7 @@ export interface TestCase {
   status: "queued" | "running" | "passed" | "failed";
   attempts: number;
   lastError?: string;
+  failureContext?: FailureContext;
   failedStepIndex?: number;
 }
 
@@ -94,6 +97,13 @@ export type Severity = "critical" | "high" | "medium" | "low";
 export interface BugEvidence {
   error: string;
   logs: unknown;
+  stackTrace?: string;
+  errorType?: string;
+  selectorAnalysis?: {
+    selector: string;
+    found: boolean;
+    visible: boolean;
+  };
 }
 
 export interface BugReport {
@@ -151,6 +161,36 @@ export interface AnalysisResult {
   summary: AnalysisSummary;
 }
 
+// Performance metrics captured during execution
+export interface PerformanceMetrics {
+  navigationStart: number;
+  fetchStart: number;
+  domInteractive: number;
+  domContentLoaded: number;
+  loadComplete: number;
+  fcp?: number; // First Contentful Paint (ms)
+  lcp?: number; // Largest Contentful Paint (ms)
+  tti?: number; // Time to Interactive (ms)
+  componentBreakdown: {
+    waitMs: number; // Time waiting for prior events
+    actionMs: number; // Action execution (click, type, navigate)
+    postActionMs: number; // Post-action settling (render, network)
+  };
+}
+// Failure context captured when a test or browser action fails
+export interface FailureContext {
+  errorType: string; // "TypeError", "TimeoutError", "ReferenceError", etc.
+  errorMessage: string; // Full error message
+  stackTrace?: string; // Full stack trace from error
+  failurePhase: "navigate" | "extract" | "click" | "type" | "assertion"; // When it failed
+  selectorValid: boolean; // Was the selector found in the DOM?
+  pageState?: {
+    url: string;
+    title: string;
+    consoleErrors: string[]; // Current console errors at failure time
+    networkErrors: string[]; // Current network errors
+  };
+}
 // Browser tool action — the format the user specified.
 export type BrowserAction = "navigate" | "click" | "type" | "extract" | "screenshot";
 
@@ -159,6 +199,7 @@ export interface BrowserToolInput {
   target: string;
   value?: string;
   reason: string;
+  
 }
 
 export interface BrowserToolResult {
@@ -171,6 +212,8 @@ export interface BrowserToolResult {
   error?: string;
   durationMs: number;
   screenshotPath?: string;
+  metrics?: PerformanceMetrics;
+  failureContext?: FailureContext;
 }
 
 // Events streamed to the dashboard via SSE.
@@ -194,7 +237,8 @@ export type AgentEventType =
   | "run_error"
   | "auth_required"
   | "auth_response"
-  | "auth_submitted";
+  | "auth_submitted"
+  | "perf_metrics";
 
 export interface AgentEvent {
   type: AgentEventType;

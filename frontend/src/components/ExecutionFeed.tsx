@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { cn, formatTime } from "@/lib/utils";
+import { PerformanceMetricsBadge } from "@/components/PerformanceBreakdown";
 import type { ExecutionStep, StepKind } from "@/lib/mockData";
 
 const KIND_ICON: Record<StepKind, React.ComponentType<{ className?: string }>> = {
@@ -130,7 +131,7 @@ function StepRow({ step }: { step: ExecutionStep }) {
           </p>
         )}
 
-        <div className="mt-2 flex items-center gap-2 text-[11px]">
+        <div className="mt-2 flex items-center gap-2 text-[11px] flex-wrap">
           {ok ? (
             <span className="inline-flex items-center gap-1 text-emerald-400">
               <CheckCircle2 className="size-3" />
@@ -146,6 +147,9 @@ function StepRow({ step }: { step: ExecutionStep }) {
             <span className="font-mono text-zinc-500 truncate">
               · {step.detail}
             </span>
+          )}
+          {step.metrics && (
+            <PerformanceMetricsBadge metrics={step.metrics} />
           )}
         </div>
       </div>

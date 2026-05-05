@@ -86,6 +86,52 @@ export const Severities = {
 } as const;
 export type Severity = (typeof Severities)[keyof typeof Severities];
 
+// ── Performance Metrics ──────────────────────────────────────────────────────
+
+export interface PerformanceMetrics {
+  navigationStart: number;
+  fetchStart: number;
+  domInteractive: number;
+  domContentLoaded: number;
+  loadComplete: number;
+  fcp?: number; // First Contentful Paint (ms)
+  lcp?: number; // Largest Contentful Paint (ms)
+  tti?: number; // Time to Interactive (ms)
+  componentBreakdown: {
+    waitMs: number; // Time waiting for prior events
+    actionMs: number; // Action execution (click, type, navigate)
+    postActionMs: number; // Post-action settling (render, network)
+  };
+}
+
+// ── Failure Context ──────────────────────────────────────────────────────────
+
+export interface FailureContext {
+  errorType: string; // "TypeError", "TimeoutError", "ReferenceError", etc.
+  errorMessage: string; // Full error message
+  stackTrace?: string; // Full stack trace from error
+  failurePhase: "navigate" | "extract" | "click" | "type" | "assertion";
+  selectorValid: boolean; // Was the selector found in the DOM?
+  pageState?: {
+    url: string;
+    title: string;
+    consoleErrors: string[];
+    networkErrors: string[];
+  };
+}
+
+export interface BugEvidence {
+  error: string;
+  logs?: unknown;
+  stackTrace?: string;
+  errorType?: string;
+  selectorAnalysis?: {
+    selector: string;
+    found: boolean;
+    visible: boolean;
+  };
+}
+
 // ── Domain entities ──────────────────────────────────────────────────────────
 
 export interface ExecutionStep {
@@ -97,6 +143,7 @@ export interface ExecutionStep {
   result: StepResult;
   detail?: string;
   timestamp: string;
+  metrics?: PerformanceMetrics;
 }
 
 export interface TestCase {
@@ -107,6 +154,8 @@ export interface TestCase {
   status: TestStatus;
   attempts: number;
   expected: string;
+  lastError?: string;
+  failureContext?: FailureContext;
 }
 
 export interface Bug {
@@ -119,6 +168,7 @@ export interface Bug {
   actual: string;
   testId?: string;
   url: string;
+  evidence?: BugEvidence;
 }
 
 // ── AppModel — mirrors the backend's internal model exactly so the
@@ -206,7 +256,7 @@ export interface RunSnapshot {
 export interface Run {
   id: string;
   url: string;
-  startedAt: string;
+  startedAt: string | null;
   endedAt: string | null;
   status: RunStatus;
   snapshot: RunSnapshot;

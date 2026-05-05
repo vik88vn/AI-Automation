@@ -14,6 +14,7 @@ import type {
   BrowserAction,
   BrowserToolInput,
   BugReport,
+  FailureContext,
   Severity,
   TestCase,
   TestStep,
@@ -715,6 +716,7 @@ export class DeepAgent {
       url: string;
       error?: string;
       durationMs: number;
+      failureContext?: FailureContext;
     }> = [];
 
     let failedAt: number | undefined;
@@ -738,10 +740,16 @@ export class DeepAgent {
         url: result.url,
         error: result.error,
         durationMs: result.durationMs,
+        failureContext: result.failureContext,
       });
       if (!result.ok) {
         failedAt = i;
         failureMsg = result.error;
+        // When building a failed test case, include failure context
+        const failedStep = stepLogs[failedAt];
+        if (failedStep && failedStep.failureContext) {
+          test.failureContext = failedStep.failureContext;
+        }
         break;
       }
     }
@@ -805,6 +813,34 @@ export class DeepAgent {
       url: typeof input.url === "string" ? input.url : "",
       testId: typeof input.testId === "string" ? input.testId : undefined,
     });
+
+    // When creating a bug from a failed test, attach the failure context as
+    // structured evidence — error type, stack trace, console logs, and a
+    // selector analysis that the dashboard can render directly.
+    const testId = typeof input.testId === "string" ? input.testId : undefined;
+    const linkedTest = testId ? this.state.tests.find(t => t.id === testId) : undefined;
+    if (linkedTest && linkedTest.failureContext) {
+      const fc = linkedTest.failureContext;
+      // Resolve the actual selector that failed (from the test's failed step).
+      const failedStep =
+        linkedTest.failedStepIndex !== undefined
+          ? linkedTest.steps[linkedTest.failedStepIndex]
+          : undefined;
+      const selector = failedStep?.target ?? "(unknown)";
+      bug.evidence = {
+        error: fc.errorMessage,
+        logs: fc.pageState?.consoleErrors,
+        stackTrace: fc.stackTrace,
+        errorType: fc.errorType,
+        selectorAnalysis: {
+          selector,
+          found: fc.selectorValid,
+          // If selector wasn't found at all, it can't be visible.
+          visible: fc.selectorValid,
+        },
+      };
+    }
+
     this.emit("bug_reported", { bug });
     return { payload: { ok: true, bug } };
   }

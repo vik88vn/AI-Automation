@@ -14,6 +14,7 @@ import {
   type AppModelRoute,
   type Bug,
   type ExecutionStep,
+  type PerformanceMetrics,
   type Run,
   type RunStatus,
   type StepKind,
@@ -52,7 +53,7 @@ interface DisplayActions {
 
   // Granular event-driven actions
   addStep(step: ExecutionStep): void;
-  updateLastStepResult(result: StepResult, detail?: string): void;
+  updateLastStepResult(result: StepResult, detail?: string, metrics?: PerformanceMetrics): void;
   addOrUpdateTest(test: TestCase): void;
   addBug(bug: Bug): void;
   mergeAppModelEntry(
@@ -112,7 +113,7 @@ export const useStore = create<DisplayStore>()(
       // ── Event-driven granular actions ─────────────────────────────────────
       addStep: (step) => set((s) => ({ steps: [...s.steps, step] })),
 
-      updateLastStepResult: (result, detail) =>
+      updateLastStepResult: (result, detail, metrics) =>
         set((s) => {
           if (s.steps.length === 0) return s;
           const last = s.steps[s.steps.length - 1];
@@ -120,6 +121,7 @@ export const useStore = create<DisplayStore>()(
             ...last,
             result,
             detail: detail ?? last.detail,
+            metrics: metrics ?? last.metrics,
           };
           return { steps: [...s.steps.slice(0, -1), updated] };
         }),

@@ -54,3 +54,33 @@ Implemented constrained-viewport scrolling using CSS calc() to maintain UI integ
 - Reduces backend complexity and API contract brittleness
 - Works offline and enables form validation before sending requests
 - UX: user sees their input transformed in real-time, building confidence
+
+## 10. Performance Metrics Capture (Implemented)
+**Decision:** Capture browser navigation timing, paint entries (FCP), and component-level breakdowns (wait/action/post-action) on every navigate action; surface as a `PerformanceMetricsBadge` in the Execution Feed.
+**Reasoning:**
+- A single `durationMs` per step is too coarse to spot regressions — splitting time into wait, action, and post-action phases reveals where slowdowns originate.
+- Capturing `performance.timing` and `performance.getEntriesByType("paint")` from inside `page.evaluate()` is virtually free (no extra network round-trips, no extra dependencies).
+- Streaming metrics piggybacks on the existing `tool_result` event so the dashboard sees performance data live without an extra event channel; a dedicated `perf_metrics` event type is reserved for cases where metrics arrive asynchronously.
+- The Core Web Vitals (FCP, LCP, TTI) are surfaced as proper metric badges so users see the same numbers product engineers care about — not just internal step durations.
+
+## 11. Root Cause Analysis: Failure Context Capture (User-Implemented Backend)
+**Decision:** Extend the agent's error path to capture a structured `FailureContext` (errorType, stackTrace, failurePhase, selectorValid, pageState) on every failed `BrowserToolResult`, propagate it onto the failed `TestCase`, then attach it as `evidence` on any `BugReport` filed against that test.
+**Reasoning:**
+- The previous failure model was a single 500-character `lastError` string — useful for a glance, useless for debugging. Capturing the error type, full stack trace, and the page state at failure time turns a "test failed" into "selector `button[type='submit']` was found but the click event never fired a navigation; here's the console output."
+- Validating the selector at failure time (does the element still exist? is it visible?) lets the post-test analysis distinguish a stale selector from a real product bug — the dashboard can show a green/red selector-status pill instead of forcing the user to read the stack trace.
+- Storing the evidence on the bug itself (not just the test) means an exported bug report is self-contained: a developer reading the JSON can reproduce the failure without needing the test's full transcript.
+
+## 12. Bug Evidence Schema & Frontend Plumbing
+**Decision:** Mirrored the backend `BugEvidence` and `FailureContext` shapes onto frontend `BackendBug` / `BackendTest` / `Bug` / `TestCase` interfaces, then wired `eventRouter.toFrontendBug` and `toFrontendTest` to translate the wire format into the dashboard's domain model.
+**Reasoning:**
+- Keeping the wire shape (`BackendBug`) explicitly separate from the dashboard's view model (`Bug`) preserves the eventRouter as the single translation seam — UI components never see the raw agent payload, and breaking changes in the backend can't ripple into 30 components at once.
+- The frontend `Bug.evidence` is fully optional: existing snapshots without evidence still render, and components can degrade gracefully (just hide the Root Cause panel) when the field is absent.
+- Mock bugs in `mockData.ts` were enhanced with realistic `evidence` (real stack traces, selector analyses, console logs) so the dashboard renders meaningfully without a live backend run — critical for designing the failure-detail UI without burning agent cycles.
+
+## 13. Resolving Run.startedAt Nullability
+**Decision:** Changed `Run.startedAt` from `string` to `string | null` to match the queued/empty-active-run state introduced in decision #7.
+**Reasoning:** The empty `MOCK_ACTIVE_RUN` carries `startedAt: null` (a queued run hasn't started yet). The interface had to follow reality, not the other way around. `RunHistorySidebar` now renders an em-dash placeholder when `startedAt` is null instead of crashing on a null `relativeTime()` call.
+
+## 14. Eliminating Duplicate Method Implementations in browser.ts
+**Decision:** Removed three placeholder methods (`validateSelector`, `buildFailureContext`, `actionToPhase`) that were duplicated lower in the file, keeping the integrated versions wired into the `execute()` error path.
+**Reasoning:** The placeholder versions had a hardcoded `selectorValid: false` and an empty `title` — they would have silently masked real selector validity in the production path. Consolidating to a single working implementation eliminates the drift risk and makes the failure-context contract enforced at the type system level (one definition, one caller).

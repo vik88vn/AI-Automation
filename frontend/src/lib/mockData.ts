@@ -23,7 +23,10 @@ import {
 export type {
   AppModel,
   Bug,
+  BugEvidence,
   ExecutionStep,
+  FailureContext,
+  PerformanceMetrics,
   Run,
   RunSnapshot,
   RunStatus,
@@ -97,9 +100,89 @@ export const MOCK_TESTS: TestCase[] = [
 // ── Bugs ────────────────────────────────────────────────────────────────────
 
 export const MOCK_BUGS: Bug[] = [
-  { id: "BUG_001", title: "Login form accepts empty password and navigates to dashboard", severity: Severities.High, description: "Submitting the login form with a non-empty email and an empty password navigates the user to /dashboard instead of surfacing a validation error.", reproSteps: ["Open https://app.acme-shop.com/login", "Fill email with qa+1@acme.test", "Leave password empty", "Click submit"], expected: 'Inline validation "Password is required"; user remains on /login.', actual: "Form submits successfully (200) and the app navigates to /dashboard with a partial session.", testId: "TC_002", url: "https://app.acme-shop.com/login" },
-  { id: "BUG_002", title: "Primary CTA briefly clickable while disabled (race condition)", severity: Severities.Medium, description: "On slow networks the hero CTA is mounted in an enabled state for ~150ms before the disabled attribute is applied.", reproSteps: ["Throttle network to 'Fast 3G'", "Navigate to https://app.acme-shop.com", "Click the hero CTA within 200ms of load"], expected: "CTA is disabled or blocks interaction during initialization.", actual: "Click handler fires and submits an empty payload.", url: "https://app.acme-shop.com" },
-  { id: "BUG_003", title: "/admin/products returns 500 on POST without category", severity: Severities.Critical, description: "Submitting the product creation form without a category yields an unhandled server error instead of a validation response.", reproSteps: ["Open /admin/products", "Fill name and price only", "Click Save"], expected: "400 with field-level error message.", actual: "500 Internal Server Error; product is not created.", url: "https://app.acme-shop.com/admin/products" },
+  {
+    id: "BUG_001",
+    title: "Login form accepts empty password and navigates to dashboard",
+    severity: Severities.High,
+    description:
+      "Submitting the login form with a non-empty email and an empty password navigates the user to /dashboard instead of surfacing a validation error.",
+    reproSteps: [
+      "Open https://app.acme-shop.com/login",
+      "Fill email with qa+1@acme.test",
+      "Leave password empty",
+      "Click submit",
+    ],
+    expected: 'Inline validation "Password is required"; user remains on /login.',
+    actual:
+      "Form submits successfully (200) and the app navigates to /dashboard with a partial session.",
+    testId: "TC_002",
+    url: "https://app.acme-shop.com/login",
+    evidence: {
+      error: "Expected validation toast to appear, navigated to /dashboard instead.",
+      errorType: "AssertionError",
+      stackTrace:
+        "AssertionError: expected validation error toast\n  at validateLoginForm (login.ts:42:11)\n  at handleSubmit (login.ts:87:5)\n  at HTMLButtonElement.dispatch (event.ts:14:3)",
+      logs: ["Form submitted with empty password", "Navigation to /dashboard initiated"],
+      selectorAnalysis: {
+        selector: "button[type='submit']",
+        found: true,
+        visible: true,
+      },
+    },
+  },
+  {
+    id: "BUG_002",
+    title: "Primary CTA briefly clickable while disabled (race condition)",
+    severity: Severities.Medium,
+    description:
+      "On slow networks the hero CTA is mounted in an enabled state for ~150ms before the disabled attribute is applied.",
+    reproSteps: [
+      "Throttle network to 'Fast 3G'",
+      "Navigate to https://app.acme-shop.com",
+      "Click the hero CTA within 200ms of load",
+    ],
+    expected: "CTA is disabled or blocks interaction during initialization.",
+    actual: "Click handler fires and submits an empty payload.",
+    url: "https://app.acme-shop.com",
+    evidence: {
+      error: "Click handler fired with disabled state pending.",
+      errorType: "RaceConditionError",
+      stackTrace:
+        "RaceConditionError: button clicked before disabled flag applied\n  at HeroCTA.handleClick (hero.tsx:23:7)\n  at Object.invokeGuardedCallback (react-dom.js:118:9)",
+      logs: ["CTA mounted with disabled=false", "Disabled attribute applied at +152ms"],
+      selectorAnalysis: {
+        selector: ".hero-cta",
+        found: true,
+        visible: true,
+      },
+    },
+  },
+  {
+    id: "BUG_003",
+    title: "/admin/products returns 500 on POST without category",
+    severity: Severities.Critical,
+    description:
+      "Submitting the product creation form without a category yields an unhandled server error instead of a validation response.",
+    reproSteps: ["Open /admin/products", "Fill name and price only", "Click Save"],
+    expected: "400 with field-level error message.",
+    actual: "500 Internal Server Error; product is not created.",
+    url: "https://app.acme-shop.com/admin/products",
+    evidence: {
+      error: "POST /admin/products responded with 500 Internal Server Error",
+      errorType: "ServerError",
+      stackTrace:
+        "ServerError: 500 Internal Server Error\n  at handleProductSubmit (products.ts:104:9)\n  at fetch (api.ts:55:3)",
+      logs: [
+        "POST https://app.acme-shop.com/admin/products → 500",
+        "TypeError: Cannot read property 'category' of undefined",
+      ],
+      selectorAnalysis: {
+        selector: "form#new-product",
+        found: true,
+        visible: true,
+      },
+    },
+  },
 ];
 
 const archived = (id: string, url: string, status: Run["status"], startedSec: number, endedSec: number | null, snapshot: RunSnapshot): Run => ({
