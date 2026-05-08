@@ -84,3 +84,11 @@ Implemented constrained-viewport scrolling using CSS calc() to maintain UI integ
 ## 14. Eliminating Duplicate Method Implementations in browser.ts
 **Decision:** Removed three placeholder methods (`validateSelector`, `buildFailureContext`, `actionToPhase`) that were duplicated lower in the file, keeping the integrated versions wired into the `execute()` error path.
 **Reasoning:** The placeholder versions had a hardcoded `selectorValid: false` and an empty `title` — they would have silently masked real selector validity in the production path. Consolidating to a single working implementation eliminates the drift risk and makes the failure-context contract enforced at the type system level (one definition, one caller).
+
+## 15. Deterministic Race Condition Detection via `wasDisabledAfterClick`
+**Decision:** Extended the `click_immediate` browser action to evaluate the target element's `disabled` / `aria-disabled` state immediately after the click fires, surfaced as `wasDisabledAfterClick` in the result `data`. The agent's `handleRunTest` step loop then auto-files a medium-severity race condition bug (via `autoreportRaceCondition`) whenever a `click_immediate` step succeeds AND the element reports as disabled post-click.
+**Reasoning:**
+- The previous design relied on the LLM noticing a transient race window from a tool result and choosing to file a bug — an unreliable, prompt-dependent path. By moving the detection into Playwright + a deterministic agent-side check, we removed the LLM from the decision loop.
+- The signal is precise: `wasDisabledAfterClick=true` after a force-click means JS *did* run and disable the element, so the click landed during a real race window. Buttons that are simply never disabled (a normal "submit") never produce this signal — false positives are structurally impossible.
+- Catching the bug requires no new test scaffolding from the agent. Any existing `click_immediate` step doubles as a probe, so we get coverage for free as the agent explores commerce/cart/admin actions.
+- The bug evidence carries the selector and final URL, so the developer reading the report can navigate to the page, inspect the element, and identify which JS handler is responsible for the late `disabled = true` assignment.

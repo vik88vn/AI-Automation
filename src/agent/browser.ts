@@ -117,10 +117,50 @@ export class AgentBrowser {
             const locator = page.locator(input.target).first();
             await locator.waitFor({ state: "visible", timeout: this.defaultTimeoutMs });
             await locator.click({ timeout: this.defaultTimeoutMs });
+            // CRITICAL: locator.click() resolves as soon as the click event
+            // fires synchronously. JS fetch() handlers run on the *next* tick
+            // and may not have dispatched their request yet. Without this
+            // wait, networkidle below sees 0 in-flight requests and returns
+            // immediately — meaning we sample networkErrors BEFORE the 5xx
+            // response arrives. 250ms gives form submission handlers room to
+            // dispatch the fetch and the server time to respond. Empirically
+            // tuned against /api/products?q=[*?\ which crashes in ~30ms.
+            await page.waitForTimeout(250);
             await page
               .waitForLoadState("networkidle", { timeout: 5_000 })
               .catch(() => undefined);
             return { data: { clicked: input.target, finalUrl: page.url() } };
+          });
+
+        case "click_immediate":
+          // Race-condition probe: click as soon as the element is attached to
+          // the DOM, bypassing visibility/enabled/stability checks. Use this
+          // when investigating transient UI states — e.g., a button that is
+          // briefly clickable before JS disables it, or a modal that auto-
+          // dismisses. Force:true so disabled/overlapped elements still
+          // receive the click.
+          return await this.timed(t0, input, async () => {
+            const locator = page.locator(input.target).first();
+            await locator.waitFor({ state: "attached", timeout: 2_000 });
+            await locator.click({ force: true, timeout: 1_000, noWaitAfter: true });
+            // Same fetch-dispatch race as `click`; settle long enough to
+            // capture any 5xx responses from the click handler.
+            await page.waitForTimeout(250);
+                     const isDisabledNow = await page.evaluate((sel: string) => {
+              const el = document.querySelector(sel);
+              if (!el) return false;
+              return (el as HTMLButtonElement).disabled ||
+                     el.getAttribute("aria-disabled") === "true";
+            }, input.target).catch(() => false);
+
+            return {
+              data: {
+                clicked: input.target,
+                finalUrl: page.url(),
+                mode: "immediate",
+                wasDisabledAfterClick: isDisabledNow,
+              },
+            };
           });
 
         case "type":
@@ -224,6 +264,7 @@ export class AgentBrowser {
       case "navigate":
         return "navigate";
       case "click":
+      case "click_immediate":
         return "click";
       case "type":
         return "type";
@@ -269,14 +310,42 @@ export class AgentBrowser {
     input: BrowserToolInput,
     fn: () => Promise<{ data?: unknown; screenshotPath?: string }>
   ): Promise<BrowserToolResult> {
+    // Snapshot error counts BEFORE the action so we can return only the
+    // errors that fired during *this* action, not stale ones from earlier
+    // steps. This is critical: surfacing the full networkErrors history
+    // would cause the agent to repeatedly file the same bug on every
+    // subsequent action.
+    const networkBefore = this.networkErrors.length;
+    const consoleBefore = this.consoleErrors.length;
+
     const result = await fn();
     const page = this.page!;
     const durationMs = Date.now() - t0;
+
+    const newNetworkErrors = this.networkErrors.slice(networkBefore);
+    const newConsoleErrors = this.consoleErrors.slice(consoleBefore);
 
     // Capture performance metrics for navigate actions
     let metrics = undefined;
     if (input.action === "navigate") {
       metrics = await this.capturePerformanceMetrics(page, durationMs);
+    }
+
+    // Merge any new errors that fired during this action into the data
+    // payload so the LLM can see them in the tool result and reason
+    // about them (e.g., "click triggered a 500 — file a bug").
+    let augmentedData: unknown = result.data;
+    if (
+      result.data &&
+      typeof result.data === "object" &&
+      !Array.isArray(result.data) &&
+      (newNetworkErrors.length > 0 || newConsoleErrors.length > 0)
+    ) {
+      augmentedData = {
+        ...(result.data as Record<string, unknown>),
+        ...(newNetworkErrors.length > 0 ? { networkErrors: newNetworkErrors } : {}),
+        ...(newConsoleErrors.length > 0 ? { consoleErrors: newConsoleErrors } : {}),
+      };
     }
 
     return {
@@ -285,7 +354,7 @@ export class AgentBrowser {
       target: input.target,
       url: page.url(),
       title: await page.title().catch(() => ""),
-      data: result.data,
+      data: augmentedData,
       screenshotPath: result.screenshotPath,
       durationMs,
       metrics,

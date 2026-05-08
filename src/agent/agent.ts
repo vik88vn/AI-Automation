@@ -41,9 +41,10 @@ PRIORITIES (roughly in order):
   g. When coverage is sufficient, call finish.
 
 TOOL USE RULES:
-  - Use browser_action with action ∈ {navigate, click, type, extract, screenshot}.
+  - Use browser_action with action ∈ {navigate, click, click_immediate, type, extract, screenshot}.
   - For navigate, target is a full URL.
-  - For click / type / screenshot, target is a CSS selector. For type, value is the text.
+  - For click / click_immediate / type / screenshot, target is a CSS selector. For type, value is the text.
+  - click_immediate skips visibility/enabled checks — use it for race-condition probes (see BUG DETECTION rule 6).
   - For extract, target = "page" extracts the whole page (links, forms, buttons, headings, console errors). Or pass a selector for a region.
   - NEVER invent selectors. Use selectors returned by previous extract results.
   - record_observation domains: routes | auth | entities | flows | forms.
@@ -57,6 +58,52 @@ CONSTRAINTS:
   - Keep targets deterministic — no randomness.
   - Stop when coverage is sufficient or you have used your step budget. The runner will also enforce a hard max.
   - If a tool returns an error, do not repeat the exact same call — adapt.
+
+BUG DETECTION RULES — apply these on every tool_result:
+
+  1. NETWORK ERRORS (highest priority): Every browser_action result may now
+     include a \`networkErrors\` array listing 5xx responses that fired during
+     that action. ANY 5xx URL in networkErrors is a server bug — call
+     report_bug immediately citing:
+       - severity: "high" for /api/auth, /api/admin, /api/checkout endpoints; "medium" otherwise
+       - url: the page where the action was triggered
+       - reproSteps: the exact form fields and values you submitted
+       - actual: include the 5xx URL verbatim
+     Do NOT mark the test passed when networkErrors is non-empty. The frontend
+     may show a friendly "Network error" message that hides a real server crash.
+
+  2. AUTH BYPASS: After submitting a login form with clearly invalid credentials
+     (wrong password, malformed email, empty password), check the finalUrl in
+     the result. If it contains "dashboard", "account", "profile", "admin", or
+     any path that should require authentication, file a HIGH severity auth
+     bypass bug. The expected behavior is staying on /login with an error.
+
+  3. FUZZ INPUTS: For every text/search input you discover, generate at least
+     one error_handling test using each of these adversarial inputs:
+       - Regex specials: \`[\`, \`(\`, \`*?\`, \`\\\`  (crash naive regex backends)
+       - SQL injection: \`' OR 1=1 --\`
+       - Path traversal: \`../../../etc/passwd\`
+       - Length overflow: a 300+ character string
+       - Empty string for required fields
+     These inputs are the most likely to expose unvalidated server code.
+
+  4. PERFORMANCE: navigate results include \`metrics.componentBreakdown.actionMs\`.
+     If actionMs > 2000 on any page, note it. If the same URL exceeds 2000ms
+     across two separate visits, file a LOW severity performance bug citing the
+     observed latency.
+
+  5. CROSS-LAYER VALIDATION: When a server error fires on a form submission
+     (rule 1 catches it), also inspect the form's recorded fields for the
+     offending input. If the field has \`required: false\` and the frontend
+     allowed empty/invalid input through, file a SECOND low severity bug for
+     the missing frontend guard. This is the same root cause with two
+     manifestations.
+
+  6. RACE CONDITIONS: Use action=click_immediate on freshly-loaded pages when
+     you suspect a button has a transient enabled state (e.g., disabled
+     out-of-stock items, modals that auto-dismiss). Standard click waits for
+     stable visibility, which can hide race-window bugs.
+
 "If you encounter a page that requires a login, or if you see a password field, DO NOT try to guess credentials. Immediately call handle_authentication with a description of the fields you see."
 Begin.`;
 
@@ -79,13 +126,14 @@ const TOOL_DEFINITIONS: ToolDef[] = [
       properties: {
         action: {
           type: "string",
-          enum: ["navigate", "click", "type", "extract", "screenshot"],
-          description: "The action to perform.",
+          enum: ["navigate", "click", "click_immediate", "type", "extract", "screenshot"],
+          description:
+            "The action to perform. `click_immediate` is a race-condition probe — it clicks as soon as the element is attached (no wait for visible/enabled, force=true). Use it when investigating buttons that may be transiently enabled/disabled by JS.",
         },
         target: {
           type: "string",
           description:
-            "navigate: absolute URL. click/type/screenshot: CSS selector. extract: 'page' or CSS selector for a region.",
+            "navigate: absolute URL. click/click_immediate/type/screenshot: CSS selector. extract: 'page' or CSS selector for a region.",
         },
         value: {
           type: "string",
@@ -160,7 +208,14 @@ const TOOL_DEFINITIONS: ToolDef[] = [
             properties: {
               action: {
                 type: "string",
-                enum: ["navigate", "click", "type", "extract", "screenshot"],
+                enum: [
+                  "navigate",
+                  "click",
+                  "click_immediate",
+                  "type",
+                  "extract",
+                  "screenshot",
+                ],
               },
               target: { type: "string" },
               value: { type: "string" },
@@ -229,6 +284,7 @@ export class DeepAgent {
   private onEvent?: (e: AgentEvent) => void;
   private step = 0;
   private extractedUrls = new Set<string>();
+  private slowNavigations = new Map<string, number[]>();
   private reportDir: string;
   private analysis?: AnalysisResult;
 
@@ -717,6 +773,7 @@ export class DeepAgent {
       error?: string;
       durationMs: number;
       failureContext?: FailureContext;
+      networkErrors?: string[];
     }> = [];
 
     let failedAt: number | undefined;
@@ -732,6 +789,7 @@ export class DeepAgent {
         reason: `test ${id} step ${i + 1}`,
       });
       lastUrl = result.url;
+      const stepNetworkErrors = this.extractNetworkErrors(result);
       stepLogs.push({
         index: i,
         action: step.action,
@@ -741,7 +799,19 @@ export class DeepAgent {
         error: result.error,
         durationMs: result.durationMs,
         failureContext: result.failureContext,
+        networkErrors: stepNetworkErrors.length > 0 ? stepNetworkErrors : undefined,
       });
+
+      // Race condition probe: if click_immediate succeeded and the element
+      // is now disabled, JS disabled it after the click fired — race window confirmed.
+      if (
+        step.action === "click_immediate" &&
+        result.ok &&
+        (result.data as Record<string, unknown>)?.wasDisabledAfterClick === true
+      ) {
+        this.autoreportRaceCondition(test, id, step.target, result.url);
+      }
+
       if (!result.ok) {
         failedAt = i;
         failureMsg = result.error;
@@ -751,6 +821,44 @@ export class DeepAgent {
           test.failureContext = failedStep.failureContext;
         }
         break;
+      }
+    }
+
+    // Deterministic network-error detection: inspect every step's data payload
+    // for 5xx responses that the browser captured. This runs even when all
+    // Playwright actions succeeded (ok=true), because a form submit can return
+    // HTTP 200 to the page while the XHR it triggered returns 500.
+    if (failedAt === undefined) {
+      const allNetworkErrors = stepLogs.flatMap((s) => s.networkErrors ?? []);
+      if (allNetworkErrors.length > 0) {
+        const firstErrorStepIdx = stepLogs.findIndex(
+          (s) => (s.networkErrors ?? []).length > 0
+        );
+        failedAt = firstErrorStepIdx;
+        failureMsg = `Server error(s) during test: ${allNetworkErrors.join("; ")}`;
+        this.autoreportNetworkBug(test, id, stepLogs, allNetworkErrors);
+        this.autoreportFrontendValidationGap(test, id, lastUrl);
+      }
+    }
+
+    // Auth bypass: if an auth test lands on a protected URL, the server
+    // accepted credentials it should have rejected.
+    if (failedAt === undefined && test.type === "authentication") {
+      const PROTECTED_PATHS = ["/dashboard", "/account", "/profile", "/admin"];
+      const landedOnProtectedUrl = PROTECTED_PATHS.some((p) => lastUrl.includes(p));
+      if (landedOnProtectedUrl) {
+        failedAt = test.steps.length - 1;
+        failureMsg = `Auth bypass: submitted invalid credentials but landed on ${lastUrl}`;
+        this.autoreportAuthBypass(test, id, lastUrl);
+      }
+    }
+
+    // Performance: flag any navigate step that took over 2000ms.
+    if (failedAt === undefined) {
+      for (const log of stepLogs) {
+        if (log.action === "navigate" && log.durationMs > 2000) {
+          this.recordSlowNavigation(log.url, log.durationMs);
+        }
       }
     }
 
@@ -1019,6 +1127,215 @@ export class DeepAgent {
       }
     }
     return lines.join("\n");
+  }
+
+  // Pull the networkErrors array out of a BrowserToolResult's data payload.
+  // The browser layer always stores them there; this is the one place we
+  // unwrap them so the calling code stays type-safe.
+  private extractNetworkErrors(
+    result: Awaited<ReturnType<typeof this.browser.execute>>
+  ): string[] {
+    if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) {
+      return [];
+    }
+    const data = result.data as Record<string, unknown>;
+    return Array.isArray(data.networkErrors) ? (data.networkErrors as string[]) : [];
+  }
+
+  // Immediately file a BugReport for a network error that surfaced during a
+  // test run. Runs before the test status is written so the bug appears in
+  // the report even if the agent never calls report_bug on its own.
+  private autoreportNetworkBug(
+    test: TestCase,
+    testId: string,
+    stepLogs: Array<{ index: number; action: BrowserAction; target: string; value?: string; url: string; networkErrors?: string[] }>,
+    allNetworkErrors: string[]
+  ): void {
+    // Severity: auth/admin/checkout endpoints are high; everything else medium.
+    const severity: Severity = allNetworkErrors.some((e) =>
+      /\/(api\/auth|api\/admin|api\/login|api\/signup|api\/checkout)/i.test(e)
+    )
+      ? "high"
+      : "medium";
+
+    // Build repro steps from the actual step sequence so they're actionable.
+    const reproSteps = stepLogs.map(
+      (s, i) => `${i + 1}. ${s.action} ${s.target}${s.value !== undefined ? ` value="${s.value}"` : ""}`
+    );
+
+    const bug = this.state.reportBug({
+      title: `[Auto] Server error(s) during: ${test.title}`,
+      severity,
+      impact:
+        "Backend returned a 5xx response. The feature is broken for all users " +
+        "triggering this path. The frontend may display a generic error or " +
+        "silently fail while the server crashes.",
+      reproSteps,
+      expected: "All API calls complete with 2xx status",
+      actual: allNetworkErrors.join("; "),
+      url: stepLogs[0]?.url ?? this.opts.url,
+      testId,
+    });
+    bug.source = "analysis";
+    bug.evidence = {
+      error: allNetworkErrors[0] ?? "",
+      logs: stepLogs
+        .filter((s) => (s.networkErrors ?? []).length > 0)
+        .map((s) => ({ step: s.index + 1, errors: s.networkErrors })),
+    };
+    this.emit("bug_reported", { bug, source: "network_error_auto" });
+  }
+
+  private autoreportAuthBypass(
+    test: TestCase,
+    testId: string,
+    finalUrl: string
+  ): void {
+    const reproSteps = test.steps.map(
+      (s, i) => `${i + 1}. ${s.action} ${s.target}${s.value !== undefined ? ` value="${s.value}"` : ""}`
+    );
+    
+    const bug = this.state.reportBug({
+      title: `[Auto] Auth bypass during: ${test.title}`,
+      severity: "high",
+      impact:
+        "Server accepted invalid or empty credentials and granted access to a " +
+        "protected page. Any user can bypass authentication.",
+      reproSteps,
+      expected: "Server rejects invalid credentials; user stays on login page with an error",
+      actual: `Server redirected to ${finalUrl} after invalid credential submission`,
+      url: test.steps[0]?.target ?? this.opts.url,
+      testId,
+    });
+    bug.source = "analysis";
+    bug.evidence = {
+      error: `Landed on protected URL: ${finalUrl}`,
+      logs: { finalUrl, steps: reproSteps },
+    };
+    this.emit("bug_reported", { bug, source: "auth_bypass_auto" });
+  }
+
+  private autoreportRaceCondition(
+    test: TestCase,
+    testId: string,
+    selector: string,
+    url: string
+  ): void {
+    const bug = this.state.reportBug({
+      title: `[Auto] Race condition on ${selector}: button clickable before JS disables it`,
+      severity: "medium",
+      impact:
+        "A button that should be disabled on page load has a brief window where " +
+        "it can be clicked. Users or bots hitting the page quickly can trigger " +
+        "actions that should be blocked.",
+      reproSteps: [
+        `1. Navigate to ${url}`,
+        `2. Immediately click_immediate ${selector} (within ~150ms of load)`,
+        `3. Observe: click fires successfully; element is disabled after the fact`,
+      ],
+      expected: `${selector} is disabled immediately on page load`,
+      actual: "Element accepted click_immediate and was only disabled after the click fired",
+      url,
+      testId,
+    });
+    bug.source = "analysis";
+    bug.evidence = {
+      error: `Race window confirmed: wasDisabledAfterClick=true on ${selector}`,
+      logs: { selector, url },
+    };
+    this.emit("bug_reported", { bug, source: "race_condition_auto" });
+  }
+
+  private recordSlowNavigation(url: string, durationMs: number): void {
+    const existing = this.slowNavigations.get(url) ?? [];
+    existing.push(durationMs);
+    this.slowNavigations.set(url, existing);
+
+    if (existing.length >= 2 && existing.every((d) => d > 2000)) {
+      const avg = Math.round(existing.reduce((a, b) => a + b, 0) / existing.length);
+      const bug = this.state.reportBug({
+        title: `[Auto] Slow page load: ${url}`,
+        severity: "low",
+        impact: "Page takes over 2s to load, degrading user experience.",
+        reproSteps: [`1. navigate ${url}`],
+        expected: "Page loads in under 2000ms",
+        actual: `Page averaged ${avg}ms across ${existing.length} visits`,
+        url,
+      });
+      bug.source = "analysis";
+      bug.evidence = {
+        error: `Slow load times: ${existing.join("ms, ")}ms`,
+        logs: { samples: existing },
+      };
+      this.emit("bug_reported", { bug, source: "perf_auto" });
+    }
+  }
+
+  // Cross-layer detection: when a 5xx fires on a form submission, the same
+  // root cause often manifests at the frontend as a missing `required`
+  // attribute. We file a separate low-severity bug for each unguarded field
+  // so the developer can fix both layers in one pass.
+  private autoreportFrontendValidationGap(
+    test: TestCase,
+    testId: string,
+    url: string
+  ): void {
+    // Find the form on this URL that the test was submitting.
+    const form = this.state.model.forms.find(
+      (f) => url.startsWith(f.url) || f.url === url
+    );
+    if (!form) return;
+
+    // Selectors that received a non-empty value via type steps in this test.
+    const typedSelectors = new Set<string>();
+    for (const step of test.steps) {
+      if (
+        step.action === "type" &&
+        typeof step.value === "string" &&
+        step.value.trim().length > 0
+      ) {
+        typedSelectors.add(step.target);
+      }
+    }
+
+    // Fields that were NOT typed into AND lack required=true on the form.
+    // These are the unguarded fields that let empty input reach the server.
+    const gappyFields = form.fields.filter(
+      (f) => !typedSelectors.has(f.selector) && !f.required
+    );
+    if (gappyFields.length === 0) return;
+
+    for (const field of gappyFields) {
+      const bug = this.state.reportBug({
+        title: `[Auto] Frontend validation gap: '${field.name}' field not marked required`,
+        severity: "low",
+        impact:
+          "The frontend allowed an empty value for this field to reach the " +
+          "backend, which then crashed (see linked server bug). Marking the " +
+          "field as required in the form HTML would prevent the server-side " +
+          "error from ever firing.",
+        reproSteps: [
+          `1. Navigate to ${url}`,
+          `2. Submit the form leaving '${field.name}' (${field.selector}) empty`,
+          `3. Observe: server returns a 5xx instead of the form blocking the submission`,
+        ],
+        expected: `Field '${field.name}' should have required="true" or client-side validation`,
+        actual: `Field has required=false; empty value reached the server`,
+        url,
+        testId,
+      });
+      bug.source = "analysis";
+      bug.evidence = {
+        error: `Frontend validation gap: ${field.selector} accepted empty input`,
+        logs: {
+          fieldName: field.name,
+          selector: field.selector,
+          formUrl: form.url,
+          formPurpose: form.purpose,
+        },
+      };
+      this.emit("bug_reported", { bug, source: "frontend_gap_auto" });
+    }
   }
 }
 
