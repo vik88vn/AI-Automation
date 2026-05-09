@@ -3,6 +3,17 @@ import { Bot, ChevronDown, ChevronUp, MessageSquare, Send, Wrench } from "lucide
 import { useStore } from "@/store/useStore";
 import { useSessionStore } from "@/store/useSessionStore";
 
+const SETTINGS_KEY = "ai-qa-deep-agent.settings.v1";
+
+function readSettings(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
 interface ChatMessage {
   role: "user" | "agent";
   text: string;
@@ -24,6 +35,7 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFixing, setIsFixing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -43,18 +55,132 @@ export function ChatPanel() {
     return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
+  const addMessage = (role: "user" | "agent", text: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { role, text, timestamp: formatTimestamp() },
+    ]);
+  };
+
+  // Actually call /api/fix for each bug action
+  const executeFixes = async (actions: ChatAction[]) => {
+    const settings = readSettings();
+    const projectRoot = settings.projectRoot;
+    if (!projectRoot) {
+      addMessage(
+        "agent",
+        "Cannot fix bugs: no project root is set. Open Settings (gear icon) → Bug Fix Agent → Project root, and set the absolute path to your project source code."
+      );
+      return;
+    }
+
+    setIsFixing(true);
+    const fixBugIds = actions.filter((a) => a.type === "fix").map((a) => a.bugId);
+
+    for (const bugId of fixBugIds) {
+      const bug = bugs.find((b) => b.id === bugId);
+      if (!bug) {
+        addMessage("agent", `Bug ${bugId} not found — skipping.`);
+        continue;
+      }
+
+      addMessage("agent", `Fixing ${bugId}: ${bug.title}...`);
+
+      try {
+        const res = await fetch("/api/fix", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            bug: {
+              id: bug.id,
+              title: bug.title,
+              severity: bug.severity,
+              description: bug.description,
+              reproSteps: bug.reproSteps,
+              expected: bug.expected,
+              actual: bug.actual,
+              url: bug.url,
+              evidence: bug.evidence,
+            },
+            projectRoot,
+            targetUrl: bug.url,
+            providerSettings: {
+              preferred: settings.preferred ?? "auto",
+              anthropicKey: settings.anthropicKey,
+              anthropicModel: settings.anthropicModel,
+              openaiKey: settings.openaiKey,
+              openaiModel: settings.openaiModel,
+              ollamaModel: settings.ollamaModel,
+              ollamaBaseUrl: settings.ollamaBaseUrl,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          addMessage("agent", `Failed to fix ${bugId}: ${(err as { error?: string }).error ?? "unknown error"}`);
+          continue;
+        }
+
+        // Read the SSE stream for fix events
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let fixResult = "";
+        if (reader) {
+          let running = true;
+          while (running) {
+            const { done, value } = await reader.read();
+            if (done) { running = false; break; }
+            const text = decoder.decode(value);
+
+            // Parse SSE events from the stream
+            const lines = text.split("\n");
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const event = JSON.parse(line.slice(6)) as { type?: string; message?: string; patchedFiles?: Array<{ path: string }> };
+                if (event.type === "fix_done") {
+                  const fileCount = event.patchedFiles?.length ?? 0;
+                  fixResult = `Fixed ${bugId}! ${fileCount} file(s) patched.`;
+                  running = false;
+                } else if (event.type === "fix_error") {
+                  fixResult = `Failed to fix ${bugId}: ${event.message ?? "unknown error"}`;
+                  running = false;
+                } else if (event.type === "fix_patching" || event.type === "fix_analyzing" || event.type === "fix_verifying") {
+                  // Progress update — could show but keeping it simple
+                }
+              } catch {
+                // Check for the done event
+                if (line.includes("event: done")) {
+                  running = false;
+                }
+              }
+            }
+          }
+        }
+
+        if (fixResult) {
+          addMessage("agent", fixResult);
+        } else {
+          addMessage("agent", `Fix attempt for ${bugId} completed.`);
+        }
+      } catch (err) {
+        addMessage("agent", `Error fixing ${bugId}: ${err instanceof Error ? err.message : "unknown"}`);
+      }
+    }
+
+    setIsFixing(false);
+    addMessage("agent", "All fix attempts completed. You may want to re-run the QA agent to verify the fixes.");
+  };
+
   const sendMessage = async (text: string) => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || isFixing) return;
 
-    const userMessage: ChatMessage = {
-      role: "user",
-      text: text.trim(),
-      timestamp: formatTimestamp(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
+    addMessage("user", text.trim());
     setInput("");
     setIsLoading(true);
+
+    const settings = readSettings();
 
     try {
       const res = await fetch("/api/chat", {
@@ -63,35 +189,30 @@ export function ChatPanel() {
         body: JSON.stringify({
           message: text.trim(),
           runId: activeRunId,
+          providerSettings: {
+            preferred: settings.preferred ?? "auto",
+            anthropicKey: settings.anthropicKey,
+            anthropicModel: settings.anthropicModel,
+            openaiKey: settings.openaiKey,
+            openaiModel: settings.openaiModel,
+            ollamaModel: settings.ollamaModel,
+            ollamaBaseUrl: settings.ollamaBaseUrl,
+          },
           context: { bugs, tests: testCases },
         }),
       });
       const data: ChatResponse = await res.json();
 
-      const agentMessage: ChatMessage = {
-        role: "agent",
-        text: data.reply,
-        timestamp: formatTimestamp(),
-      };
+      addMessage("agent", data.reply);
 
-      setMessages((prev) => [...prev, agentMessage]);
+      setIsLoading(false);
 
-      if (data.actions?.some((a) => a.type === "fix")) {
-        const fixingMessage: ChatMessage = {
-          role: "agent",
-          text: "Fixing...",
-          timestamp: formatTimestamp(),
-        };
-        setMessages((prev) => [...prev, fixingMessage]);
+      // If the LLM returned fix actions, actually execute them
+      if (data.actions && data.actions.length > 0) {
+        await executeFixes(data.actions);
       }
     } catch {
-      const errorMessage: ChatMessage = {
-        role: "agent",
-        text: "Failed to get a response. Please try again.",
-        timestamp: formatTimestamp(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
+      addMessage("agent", "Failed to get a response. Make sure the backend is running and your API key is set in Settings.");
       setIsLoading(false);
     }
   };
@@ -117,6 +238,9 @@ export function ChatPanel() {
         <div className="flex items-center gap-2 text-zinc-100">
           <MessageSquare className="w-4 h-4" />
           <span className="text-sm font-medium">Agent Chat</span>
+          {isFixing && (
+            <span className="text-xs text-amber-300 animate-pulse">Fixing bugs...</span>
+          )}
         </div>
         {isExpanded ? (
           <ChevronDown className="w-4 h-4 text-zinc-400" />
@@ -156,7 +280,7 @@ export function ChatPanel() {
                 )}
                 <div>
                   <div
-                    className={`rounded-lg px-3 py-2 text-sm ${
+                    className={`rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
                       msg.role === "agent"
                         ? "bg-zinc-800/60 text-zinc-100"
                         : "bg-blue-600/20 border border-blue-500/30 text-zinc-100"
@@ -202,7 +326,7 @@ export function ChatPanel() {
           <button
             type="button"
             onClick={handleFixAll}
-            disabled={isLoading}
+            disabled={isLoading || isFixing || bugs.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
           >
             <Wrench className="w-3.5 h-3.5" />
@@ -213,12 +337,12 @@ export function ChatPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about bugs or request fixes..."
-            disabled={isLoading}
+            disabled={isLoading || isFixing}
             className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 disabled:opacity-50 transition-colors"
           />
           <button
             type="submit"
-            disabled={isLoading || !input.trim()}
+            disabled={isLoading || isFixing || !input.trim()}
             className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-4 h-4" />

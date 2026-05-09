@@ -249,6 +249,7 @@ function listRuns(res: ServerResponse): void {
 interface ChatBody {
   message?: string;
   runId?: string;
+  providerSettings?: ProviderResolverInput;
   context?: {
     bugs?: Array<{ id: string; title: string; severity: string; description?: string; url?: string }>;
     tests?: Array<{ id: string; title: string; status: string }>;
@@ -270,16 +271,16 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
     return;
   }
 
-  // Resolve provider from env (chat uses the same provider as the agent).
+  // Resolve provider: frontend settings win, then env vars.
   const settings: ProviderResolverInput = {
-    preferred: "auto",
-    anthropicKey: process.env.ANTHROPIC_API_KEY,
-    openaiKey: process.env.OPENAI_API_KEY,
-    ollamaModel: process.env.OLLAMA_MODEL,
-    ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
+    preferred: parsed.providerSettings?.preferred ?? "auto",
+    anthropicKey: parsed.providerSettings?.anthropicKey ?? process.env.ANTHROPIC_API_KEY,
+    anthropicModel: parsed.providerSettings?.anthropicModel,
+    openaiKey: parsed.providerSettings?.openaiKey ?? process.env.OPENAI_API_KEY,
+    openaiModel: parsed.providerSettings?.openaiModel,
+    ollamaModel: parsed.providerSettings?.ollamaModel ?? process.env.OLLAMA_MODEL,
+    ollamaBaseUrl: parsed.providerSettings?.ollamaBaseUrl ?? process.env.OLLAMA_BASE_URL,
   };
-  // Also check localStorage-style settings forwarded from frontend
-  const run = parsed.runId ? runs.get(parsed.runId) : undefined;
   let providerConfig;
   try {
     providerConfig = resolveProviderConfig(settings);
