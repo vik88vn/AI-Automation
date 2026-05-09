@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runDeepAgent } from "./agent.js";
-import { resolveProviderConfig, type ProviderResolverInput } from "./llm.js";
+import { resolveProviderConfig, createProvider, type ProviderResolverInput } from "./llm.js";
+import { FixAgent, type FixRequest, type FixEvent } from "./fixer.js";
 import type { AgentEvent, AgentRunResult } from "./types.js";
 
 interface ActiveRun {
@@ -241,10 +242,237 @@ function listRuns(res: ServerResponse): void {
   });
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/chat — conversational endpoint seeded with run context
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface ChatBody {
+  message?: string;
+  runId?: string;
+  context?: {
+    bugs?: Array<{ id: string; title: string; severity: string; description?: string; url?: string }>;
+    tests?: Array<{ id: string; title: string; status: string }>;
+  };
+}
+
+async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  let parsed: ChatBody;
+  try {
+    parsed = body ? (JSON.parse(body) as ChatBody) : {};
+  } catch {
+    sendJson(res, 400, { error: "invalid JSON" });
+    return;
+  }
+  const message = parsed.message?.trim();
+  if (!message) {
+    sendJson(res, 400, { error: "message is required" });
+    return;
+  }
+
+  // Resolve provider from env (chat uses the same provider as the agent).
+  const settings: ProviderResolverInput = {
+    preferred: "auto",
+    anthropicKey: process.env.ANTHROPIC_API_KEY,
+    openaiKey: process.env.OPENAI_API_KEY,
+    ollamaModel: process.env.OLLAMA_MODEL,
+    ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
+  };
+  // Also check localStorage-style settings forwarded from frontend
+  const run = parsed.runId ? runs.get(parsed.runId) : undefined;
+  let providerConfig;
+  try {
+    providerConfig = resolveProviderConfig(settings);
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  const provider = createProvider(providerConfig);
+
+  // Build context summary for the LLM
+  const bugs = parsed.context?.bugs ?? [];
+  const tests = parsed.context?.tests ?? [];
+  const bugSummary = bugs.length > 0
+    ? bugs.map((b) => `- [${b.severity.toUpperCase()}] ${b.id}: ${b.title}${b.url ? ` (${b.url})` : ""}`).join("\n")
+    : "No bugs found.";
+  const testSummary = tests.length > 0
+    ? tests.map((t) => `- ${t.id}: ${t.title} [${t.status}]`).join("\n")
+    : "No tests run.";
+
+  const systemPrompt = `You are the AI QA Engineer assistant. You just finished testing a website and found these results:
+
+## Bugs Found
+${bugSummary}
+
+## Test Results
+${testSummary}
+
+The user is now asking you about the results. Be helpful, concise, and specific. If they ask how to fix a bug, explain the likely root cause and the code change needed. If they ask you to fix bugs, respond with actionable guidance and include which bug IDs you'd fix.
+
+When the user asks you to fix bugs, include a JSON block at the end of your message like:
+\`\`\`json
+{"actions": [{"type": "fix", "bugId": "BUG_001"}]}
+\`\`\`
+
+Only include the actions block when the user explicitly asks you to fix something.`;
+
+  try {
+    const result = await provider.chat({
+      system: systemPrompt,
+      tools: [],
+      messages: [{ role: "user", content: message }],
+      maxTokens: 1024,
+    });
+
+    const replyText = result.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { type: "text"; text: string }).text)
+      .join("\n");
+
+    // Parse actions from the reply if present
+    let actions: Array<{ type: string; bugId: string }> | undefined;
+    const actionsMatch = replyText.match(/```json\s*(\{[\s\S]*?"actions"[\s\S]*?\})\s*```/);
+    if (actionsMatch) {
+      try {
+        const parsed = JSON.parse(actionsMatch[1]) as { actions?: Array<{ type: string; bugId: string }> };
+        actions = parsed.actions;
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    // Clean the reply text (remove the JSON block from display)
+    const cleanReply = replyText.replace(/```json\s*\{[\s\S]*?"actions"[\s\S]*?\}\s*```/g, "").trim();
+
+    sendJson(res, 200, { reply: cleanReply, actions });
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/fix — spawn a FixAgent to patch a bug in the user's source code
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface FixBody {
+  bugId?: string;
+  bug?: {
+    id: string;
+    title: string;
+    severity: string;
+    description: string;
+    reproSteps: string[];
+    expected: string;
+    actual: string;
+    url: string;
+    evidence?: { error: string; stackTrace?: string; errorType?: string };
+  };
+  projectRoot?: string;
+  targetUrl?: string;
+  providerSettings?: ProviderResolverInput;
+}
+
+async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  let parsed: FixBody;
+  try {
+    parsed = body ? (JSON.parse(body) as FixBody) : {};
+  } catch {
+    sendJson(res, 400, { error: "invalid JSON" });
+    return;
+  }
+
+  if (!parsed.bug) {
+    sendJson(res, 400, { error: "bug object is required" });
+    return;
+  }
+  const projectRoot = parsed.projectRoot || process.env.PROJECT_ROOT;
+  if (!projectRoot) {
+    sendJson(res, 400, {
+      error: "projectRoot is required. Set it in Settings or set the PROJECT_ROOT env var.",
+    });
+    return;
+  }
+  const targetUrl = parsed.targetUrl || parsed.bug.url;
+
+  const settings: ProviderResolverInput = {
+    preferred: parsed.providerSettings?.preferred ?? "auto",
+    anthropicKey: parsed.providerSettings?.anthropicKey ?? process.env.ANTHROPIC_API_KEY,
+    openaiKey: parsed.providerSettings?.openaiKey ?? process.env.OPENAI_API_KEY,
+    ollamaModel: parsed.providerSettings?.ollamaModel ?? process.env.OLLAMA_MODEL,
+    ollamaBaseUrl: parsed.providerSettings?.ollamaBaseUrl ?? process.env.OLLAMA_BASE_URL,
+  };
+  let providerConfig;
+  try {
+    providerConfig = resolveProviderConfig(settings);
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  // Stream fix events via SSE
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    "access-control-allow-origin": "*",
+  });
+
+  const fixRequest: FixRequest = {
+    bug: parsed.bug,
+    projectRoot,
+    provider: providerConfig,
+    targetUrl,
+    onEvent: (event: FixEvent) => {
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // client disconnected
+      }
+    },
+  };
+
+  try {
+    const agent = new FixAgent(fixRequest);
+    const result = await agent.run();
+    res.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
+  } catch (err) {
+    const errorEvent = {
+      type: "fix_error",
+      timestamp: new Date().toISOString(),
+      message: err instanceof Error ? err.message : String(err),
+    };
+    res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+  } finally {
+    res.end();
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CORS preflight handler
+// ──────────────────────────────────────────────────────────────────────────────
+
+function handleCors(res: ServerResponse): void {
+  res.writeHead(204, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+  });
+  res.end();
+}
+
 export function startServer(port = 4310): void {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const route = url.pathname;
+
+    // Handle CORS preflight for all /api routes
+    if (req.method === "OPTIONS" && route.startsWith("/api")) {
+      handleCors(res);
+      return;
+    }
 
     if (req.method === "GET" && (route === "/" || route === "/index.html")) {
       void serveDashboard(res);
@@ -266,6 +494,16 @@ export function startServer(port = 4310): void {
     const summaryMatch = route.match(/^\/api\/runs\/([^/]+)$/);
     if (req.method === "GET" && summaryMatch) {
       getRunSummary(res, summaryMatch[1]);
+      return;
+    }
+    // Chat endpoint
+    if (req.method === "POST" && route === "/api/chat") {
+      void handleChat(req, res);
+      return;
+    }
+    // Fix endpoint
+    if (req.method === "POST" && route === "/api/fix") {
+      void handleFix(req, res);
       return;
     }
     if (req.method === "GET" && route === "/health") {

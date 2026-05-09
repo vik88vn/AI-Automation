@@ -6,6 +6,7 @@ import { ExecutionFeed } from "@/components/ExecutionFeed";
 import { TestTable } from "@/components/TestTable";
 import { BugList } from "@/components/BugList";
 import { RunInput } from "@/components/RunInput";
+import { ChatPanel } from "@/components/ChatPanel";
 import { RunHistorySidebar } from "@/components/RunHistorySidebar";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -90,6 +91,7 @@ export function Dashboard() {
           </Tabs>
         </div>
 
+        <ChatPanel />
         <RunInput />
       </main>
 

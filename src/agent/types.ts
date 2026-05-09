@@ -72,7 +72,7 @@ export type TestType =
 export type Priority = "high" | "medium" | "low";
 
 export interface TestStep {
-  action: "navigate" | "click" | "type" | "extract" | "screenshot";
+  action: "navigate" | "click" | "click_immediate" | "type" | "extract" | "screenshot";
   target: string;
   value?: string;
   expected?: string;
@@ -192,7 +192,15 @@ export interface FailureContext {
   };
 }
 // Browser tool action — the format the user specified.
-export type BrowserAction = "navigate" | "click" | "type" | "extract" | "screenshot";
+// `click_immediate` is a race-condition probe that clicks as soon as the
+// element is attached, bypassing visibility/enabled checks.
+export type BrowserAction =
+  | "navigate"
+  | "click"
+  | "click_immediate"
+  | "type"
+  | "extract"
+  | "screenshot";
 
 export interface BrowserToolInput {
   action: BrowserAction;

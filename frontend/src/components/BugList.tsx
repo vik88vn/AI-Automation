@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bug as BugIcon, ExternalLink } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Bug as BugIcon, ExternalLink, Wrench, Loader2, CheckCircle2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import type { Severity } from "@/lib/mockData";
 
@@ -14,8 +16,75 @@ const SEVERITY_VARIANT: Record<
   low: "muted",
 };
 
+const SETTINGS_KEY = "ai-qa-deep-agent.settings.v1";
+
+function readProjectRoot(): string {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw) as { projectRoot?: string };
+    return parsed.projectRoot ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function BugList() {
   const bugs = useStore((s) => s.bugs);
+  const [fixingBugs, setFixingBugs] = useState<Record<string, "fixing" | "done" | "error">>({});
+
+  const handleFix = async (bug: typeof bugs[0]) => {
+    const projectRoot = readProjectRoot();
+    if (!projectRoot) {
+      alert("Set your project root path in Settings before using Fix.");
+      return;
+    }
+    setFixingBugs((s) => ({ ...s, [bug.id]: "fixing" }));
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          bug: {
+            id: bug.id,
+            title: bug.title,
+            severity: bug.severity,
+            description: bug.description,
+            reproSteps: bug.reproSteps,
+            expected: bug.expected,
+            actual: bug.actual,
+            url: bug.url,
+            evidence: bug.evidence,
+          },
+          projectRoot,
+          targetUrl: bug.url,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`Fix failed: ${res.status}`);
+      }
+      // SSE stream — read events until done
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (reader) {
+        let running = true;
+        while (running) {
+          const { done, value } = await reader.read();
+          if (done) { running = false; break; }
+          const text = decoder.decode(value);
+          if (text.includes('"fix_done"') || text.includes('event: done')) {
+            setFixingBugs((s) => ({ ...s, [bug.id]: "done" }));
+            running = false;
+          } else if (text.includes('"fix_error"')) {
+            setFixingBugs((s) => ({ ...s, [bug.id]: "error" }));
+            running = false;
+          }
+        }
+      }
+    } catch {
+      setFixingBugs((s) => ({ ...s, [bug.id]: "error" }));
+    }
+  };
 
   if (bugs.length === 0) {
     return (
@@ -54,15 +123,48 @@ export function BugList() {
               </div>
               <CardTitle className="text-base leading-snug">{bug.title}</CardTitle>
             </div>
-            <a
-              href={bug.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-zinc-500 hover:text-zinc-200 transition-colors shrink-0"
-              title={bug.url}
-            >
-              <ExternalLink className="size-4" />
-            </a>
+            <div className="flex items-center gap-2 shrink-0">
+              {fixingBugs[bug.id] === "fixing" ? (
+                <Badge variant="warning" className="gap-1">
+                  <Loader2 className="size-3 animate-spin" />
+                  Fixing…
+                </Badge>
+              ) : fixingBugs[bug.id] === "done" ? (
+                <Badge variant="success" className="gap-1">
+                  <CheckCircle2 className="size-3" />
+                  Fixed
+                </Badge>
+              ) : fixingBugs[bug.id] === "error" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleFix(bug)}
+                  className="gap-1 text-red-400 border-red-500/30 hover:bg-red-500/10"
+                >
+                  <Wrench className="size-3" />
+                  Retry
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleFix(bug)}
+                  className="gap-1"
+                >
+                  <Wrench className="size-3" />
+                  Fix
+                </Button>
+              )}
+              <a
+                href={bug.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-zinc-500 hover:text-zinc-200 transition-colors"
+                title={bug.url}
+              >
+                <ExternalLink className="size-4" />
+              </a>
+            </div>
           </CardHeader>
 
           <CardContent className="space-y-4">

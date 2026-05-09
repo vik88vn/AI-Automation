@@ -93,6 +93,15 @@ export class AgentBrowser {
     return this.page?.url() ?? "about:blank";
   }
 
+  // Reset the cross-action error buffers. Call this between distinct test runs
+  // so a 5xx captured during one test never leaks into a later test's report.
+  // The Playwright `page.on("response")` listener stays attached — we only
+  // clear the accumulated arrays.
+  clearTransientErrors(): void {
+    this.networkErrors.length = 0;
+    this.consoleErrors.length = 0;
+  }
+
   async execute(input: BrowserToolInput): Promise<BrowserToolResult> {
     const t0 = Date.now();
     if (!this.page) throw new Error("Browser not started");

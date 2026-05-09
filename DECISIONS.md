@@ -92,3 +92,7 @@ Implemented constrained-viewport scrolling using CSS calc() to maintain UI integ
 - The signal is precise: `wasDisabledAfterClick=true` after a force-click means JS *did* run and disable the element, so the click landed during a real race window. Buttons that are simply never disabled (a normal "submit") never produce this signal — false positives are structurally impossible.
 - Catching the bug requires no new test scaffolding from the agent. Any existing `click_immediate` step doubles as a probe, so we get coverage for free as the agent explores commerce/cart/admin actions.
 - The bug evidence carries the selector and final URL, so the developer reading the report can navigate to the page, inspect the element, and identify which JS handler is responsible for the late `disabled = true` assignment.
+
+After testing the bugged local host again, bugs 2 and 7 wern't caught, to fix this i added 4 code blocks to src/agent/agen.ts. First the FormEntry to imports at line 17, then i had to hook the form seeder at line 710, then at line 600 i replaced the 591-601 code block with an updated block to hook the click_immediate seeder from extract results, lastly i added the 3 helper methods after line 1349.
+
+on the 2nd run of the day bug 2 and 7(the 2 race conditions) meaning the agent marked them as low marginal value but the click immeditate probes were queed. To fix this i changed line 1504 and 555-564 of src/agent/agent.ts for medium to high priority on seeded click_immediate probes and reject if any high-priority tests are still qued

@@ -22,6 +22,7 @@ export interface ProviderSettings {
   openaiModel?: string;
   ollamaBaseUrl?: string;
   ollamaModel?: string;
+  projectRoot?: string;
 }
 
 export interface StartRunOptions {

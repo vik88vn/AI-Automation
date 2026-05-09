@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Key, Settings as SettingsIcon, X } from "lucide-react";
+import { FolderOpen, Key, Settings as SettingsIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ProviderSettings } from "@/lib/api";
 
@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: Required<ProviderSettings> = {
   openaiModel: "",
   ollamaBaseUrl: "",
   ollamaModel: "",
+  projectRoot: "",
 };
 
 const ANTHROPIC_MODELS = [
@@ -236,6 +237,30 @@ export function SettingsDialog({ open, onClose, onSaved }: Props) {
                 reset
               </button>
             </Field>
+          </Section>
+
+          {/* Project Root — for bug fix agent */}
+          <Section legend="Bug Fix Agent">
+            <Field label="Project root">
+              <input
+                type="text"
+                value={settings.projectRoot}
+                onChange={(e) => update("projectRoot", e.target.value)}
+                placeholder="/path/to/your/project"
+                className="field-input"
+              />
+              <button
+                type="button"
+                className="ghost-reset"
+                onClick={() => update("projectRoot", "")}
+              >
+                reset
+              </button>
+            </Field>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              Absolute path to the project source code. Required for the "Fix Bug" feature —
+              the agent reads and patches files here.
+            </p>
           </Section>
 
           {/* Ollama */}

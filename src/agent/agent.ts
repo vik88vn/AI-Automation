@@ -15,6 +15,7 @@ import type {
   BrowserToolInput,
   BugReport,
   FailureContext,
+  FormEntry,
   Severity,
   TestCase,
   TestStep,
@@ -551,7 +552,18 @@ export class DeepAgent {
         return this.handleReportBug(input);
       case "handle_authentication":
         return await this.requestHumanAuth(input.reason as string, input.fields as Record<string, unknown>);
-      case "finish":
+            case "finish": {
+        const highQueued = this.tests().filter(
+          (t) => t.status === "queued" && t.priority === "high"
+        );
+        if (highQueued.length > 0) {
+          return {
+            payload: {
+              ok: false,
+              error: `Cannot finish: ${highQueued.length} high-priority test(s) still queued. Run them first: ${highQueued.map((t) => t.id).join(", ")}`,
+            },
+          };
+        }
         return {
           payload: {
             ok: true,
@@ -561,6 +573,7 @@ export class DeepAgent {
           finished: true,
           finishReason: typeof input.reason === "string" ? input.reason : "agent_finished",
         };
+      }
       default:
         return { payload: { ok: false, error: `unknown tool ${tu.name}` } };
     }
@@ -588,7 +601,7 @@ export class DeepAgent {
     const browserInput: BrowserToolInput = { action, target, value, reason };
     const result = await this.browser.execute(browserInput);
 
-    if (action === "extract" && result.ok && (target === "page" || target === "")) {
+       if (action === "extract" && result.ok && (target === "page" || target === "")) {
       this.extractedUrls.add(result.url);
       // Auto-record the visited route on a successful extract.
       this.state.recordRoute({
@@ -598,6 +611,9 @@ export class DeepAgent {
           (result.data as { status?: number } | undefined)?.status ?? 200,
         notes: "auto: extracted",
       });
+      // Race-condition seeding: queue a click_immediate probe for any
+      // non-form button found on the page (cart buttons, action buttons).
+      this.seedClickImmediateProbes(result.url, result.data);
     }
 
     if (action === "navigate" && result.ok) {
@@ -708,6 +724,7 @@ export class DeepAgent {
             purpose: typeof data.purpose === "string" ? data.purpose : "",
           });
           this.emit("model_update", { domain, entry: f });
+           this.seedFormVariants(f);
           return { payload: { ok: true, recorded: f } };
         }
         default:
@@ -763,6 +780,11 @@ export class DeepAgent {
 
     this.state.setTestStatus(id, "running", { incrementAttempt: true });
     this.emit("test_started", { test });
+
+    // Reset the browser's transient error buffers so 5xx responses captured
+    // during a previous test cannot leak into this test's networkErrors and
+    // be misattributed by the auto-bug-reporting helpers.
+    this.browser.clearTransientErrors();
 
     const stepLogs: Array<{
       index: number;
@@ -1286,6 +1308,11 @@ export class DeepAgent {
     );
     if (!form) return;
 
+    // Skip search-style forms (GET method). These are intentionally
+    // optional — flagging the search-query field as "missing required" is
+    // a false positive (e.g. the `q` field on /products.html).
+    if (form.method.toLowerCase() === "get") return;
+
     // Selectors that received a non-empty value via type steps in this test.
     const typedSelectors = new Set<string>();
     for (const step of test.steps) {
@@ -1335,6 +1362,164 @@ export class DeepAgent {
         },
       };
       this.emit("bug_reported", { bug, source: "frontend_gap_auto" });
+    }
+  }
+
+  // ── Deterministic test seeding ─────────────────────────────────────────
+  //
+  // The LLM picks tests non-deterministically. Across runs it sometimes
+  // skips the exact inputs that trigger known bug classes. These seeders
+  // queue the high-yield adversarial tests in code so coverage is stable
+  // regardless of which model is driving.
+
+  // Adversarial form variants: empty-field probes, malformed-email probes,
+  // and length-overflow probes. Skips GET-method (search) forms — those
+  // get the dedicated search-fuzz seeder below.
+  private seedFormVariants(form: FormEntry): void {
+    if (form.method.toLowerCase() === "get") {
+      this.seedSearchFuzzVariants(form);
+      return;
+    }
+    if (form.fields.length === 0) return;
+
+    const submitTarget = form.submitSelector || "#submit";
+    const placeholder = (type: string): string => {
+      const t = type.toLowerCase();
+      if (t === "email") return "qa.probe@example.com";
+      if (t === "password") return "Password123!";
+      if (t === "number") return "10";
+      if (t === "tel") return "5555550100";
+      return "QA Probe";
+    };
+
+    // 1) For each field, queue a test that fills the OTHERS and leaves it empty.
+    for (const target of form.fields) {
+      const steps: TestStep[] = [
+        { action: "navigate", target: form.url, expected: "Page loads" },
+      ];
+      for (const f of form.fields) {
+        if (f.selector === target.selector) continue;
+        steps.push({
+          action: "type",
+          target: f.selector,
+          value: placeholder(f.type),
+          expected: `Filled ${f.name}`,
+        });
+      }
+      steps.push({ action: "click", target: submitTarget, expected: "Submit attempted" });
+
+      this.state.addTest({
+        title: `[Seeded] ${form.purpose || form.url}: '${target.name}' left empty`,
+        type: "form_validation",
+        priority: "medium",
+        expected: `Server should reject the submission with a 4xx, NOT crash with a 5xx`,
+        steps,
+      });
+    }
+
+    // 2) If the form has an email field, queue a `noatsign` probe that
+    //    specifically triggers naive `email.split("@")[1]` crashes.
+    const emailField = form.fields.find(
+      (f) => f.type.toLowerCase() === "email" || f.name.toLowerCase() === "email"
+    );
+    if (emailField) {
+      const steps: TestStep[] = [
+        { action: "navigate", target: form.url, expected: "Page loads" },
+      ];
+      for (const f of form.fields) {
+        const value = f.selector === emailField.selector ? "noatsign" : placeholder(f.type);
+        steps.push({ action: "type", target: f.selector, value, expected: `Filled ${f.name}` });
+      }
+      steps.push({ action: "click", target: submitTarget, expected: "Submit attempted" });
+
+      this.state.addTest({
+        title: `[Seeded] ${form.purpose || form.url}: email='noatsign' (no @)`,
+        type: "form_validation",
+        priority: "high",
+        expected: "Server validates email format and returns 4xx (NOT a 5xx TypeError)",
+        steps,
+      });
+    }
+
+    // 3) Length-overflow probe on the first text-like field.
+    const textField = form.fields.find(
+      (f) => f.type.toLowerCase() === "text" || f.type.toLowerCase() === "search"
+    );
+    if (textField) {
+      const steps: TestStep[] = [
+        { action: "navigate", target: form.url, expected: "Page loads" },
+      ];
+      for (const f of form.fields) {
+        const value = f.selector === textField.selector ? "x".repeat(500) : placeholder(f.type);
+        steps.push({ action: "type", target: f.selector, value, expected: `Filled ${f.name}` });
+      }
+      steps.push({ action: "click", target: submitTarget, expected: "Submit attempted" });
+
+      this.state.addTest({
+        title: `[Seeded] ${form.purpose || form.url}: 500-char overflow on '${textField.name}'`,
+        type: "error_handling",
+        priority: "medium",
+        expected: "Server handles long input gracefully (4xx or 2xx, NOT a 5xx)",
+        steps,
+      });
+    }
+  }
+
+  // GET-method (search) forms get the regex / SQL / overflow fuzz set.
+  private seedSearchFuzzVariants(form: FormEntry): void {
+    const queryField = form.fields[0];
+    if (!queryField) return;
+    const submitTarget = form.submitSelector || "button";
+
+    const payloads: Array<{ value: string; label: string }> = [
+      { value: "[(*?\\", label: "regex specials" },
+      { value: "' OR 1=1 --", label: "SQL injection" },
+      { value: "x".repeat(500), label: "500-char overflow" },
+    ];
+
+    for (const p of payloads) {
+      this.state.addTest({
+        title: `[Seeded] ${form.purpose || "Search"}: ${p.label}`,
+        type: "error_handling",
+        priority: "high",
+        expected: "Server handles input safely (no 5xx crash)",
+        steps: [
+          { action: "navigate", target: form.url, expected: "Page loads" },
+          { action: "type", target: queryField.selector, value: p.value, expected: "Payload typed" },
+          { action: "click", target: submitTarget, expected: "Search submitted" },
+        ],
+      });
+    }
+  }
+
+  // For each non-form button on a freshly-extracted page, queue a
+  // click_immediate probe. Targets buttons like `button.add-to-cart` that
+  // are wired up by JS and may have a transient enabled window.
+  private seedClickImmediateProbes(pageUrl: string, extractData: unknown): void {
+    if (!extractData || typeof extractData !== "object") return;
+    const data = extractData as Record<string, unknown>;
+    const buttons = Array.isArray(data.buttons) ? (data.buttons as Array<{ selector?: string; text?: string }>) : [];
+    const formSubmitSelectors = new Set(
+      this.state.model.forms.flatMap((f) => [f.submitSelector, f.selector]).filter(Boolean)
+    );
+
+    for (const btn of buttons) {
+      if (!btn.selector || formSubmitSelectors.has(btn.selector)) continue;
+      // Only probe action-style buttons (cart, buy, add, remove, delete).
+      const txt = (btn.text || "").toLowerCase();
+      const sel = btn.selector.toLowerCase();
+      if (!/cart|buy|add|remove|delete|purchase|checkout/.test(txt + " " + sel)) continue;
+
+      this.state.addTest({
+        title: `[Seeded] Race probe: click_immediate ${btn.selector} on ${pageUrl}`,
+        type: "regression",
+        priority: "high",
+        expected: "Button is disabled on load OR click is rejected by server validation",
+        steps: [
+          { action: "navigate", target: pageUrl, expected: "Page loads" },
+          { action: "click_immediate", target: btn.selector, expected: "Race probe fires" },
+        ],
+      });
     }
   }
 }
