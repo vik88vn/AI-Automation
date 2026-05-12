@@ -393,4 +393,4 @@ See [`DECISIONS.md`](./DECISIONS.md) for the full chronological architectural lo
 
 ## License
 
-Proprietary — see [LICENSE](./LICENSE). All rights reserved. Previously MIT; relicensed in May 2026.
+MIT — see [LICENSE](./LICENSE).
