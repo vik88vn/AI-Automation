@@ -395,4 +395,4 @@ See [`DECISIONS.md`](./DECISIONS.md) for the full chronological architectural lo
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+Proprietary — see [LICENSE](./LICENSE). All rights reserved.
