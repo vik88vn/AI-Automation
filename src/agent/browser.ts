@@ -36,6 +36,10 @@ export class AgentBrowser {
   private consoleErrors: string[] = [];
   private networkErrors: string[] = [];
   private lastStatus = 200;
+  // Response headers of the most recent main-document navigation. Used by
+  // checkSecurityHeaders() to flag missing CSP / X-Frame-Options / etc.
+  private lastResponseHeaders: Record<string, string> = {};
+  private lastSetCookies: string[] = [];
   private screenshotsDir: string;
   private defaultTimeoutMs: number;
   private screenshotIndex = 0;
@@ -115,6 +119,13 @@ export class AgentBrowser {
               timeout: this.defaultTimeoutMs,
             });
             this.lastStatus = resp?.status() ?? 0;
+            // Snapshot security-relevant response headers for the main document
+            // so checkSecurityHeaders() can audit them after navigation.
+            if (resp) {
+              this.lastResponseHeaders = await resp.allHeaders().catch(() => ({}));
+              const sc = this.lastResponseHeaders["set-cookie"];
+              this.lastSetCookies = sc ? sc.split("\n") : [];
+            }
             await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
             return {
               data: { status: this.lastStatus, finalUrl: page.url() },
@@ -567,5 +578,203 @@ export class AgentBrowser {
       consoleErrors,
       networkErrors,
     } as ExtractedPage;
+  }
+
+  // ── Advanced detector helpers ──────────────────────────────────────────
+  //
+  // These run in-page DOM audits and header inspections to gather evidence
+  // for the accessibility / security / SEO+perf detectors in agent.ts. They
+  // are read-only: they never mutate page state, so they're safe to call at
+  // any test boundary.
+
+  // Accessibility audit: scans the live DOM for the most common, highest-impact
+  // WCAG violations — images without alt text, buttons/links without an
+  // accessible name, and form inputs without an associated label.
+  async extractA11yViolations(): Promise<
+    Array<{ selector: string; type: string; html: string; ariaLabel?: string; contrastRatio?: number }>
+  > {
+    if (!this.page) return [];
+    return await this.page
+      .evaluate(() => {
+        const violations: Array<{ selector: string; type: string; html: string; ariaLabel?: string }> = [];
+
+        const sel = (el: Element): string => {
+          if (el.id) return `#${el.id}`;
+          const cls = (el.className || "").toString().trim().split(/\s+/)[0];
+          return cls ? `${el.tagName.toLowerCase()}.${cls}` : el.tagName.toLowerCase();
+        };
+        const snippet = (el: Element): string => el.outerHTML.slice(0, 200);
+
+        // 1. Images without alt text
+        for (const img of Array.from(document.querySelectorAll("img")).slice(0, 50)) {
+          if (!img.hasAttribute("alt")) {
+            violations.push({ selector: sel(img), type: "missing-alt", html: snippet(img) });
+          }
+        }
+
+        // 2. Buttons / links without an accessible name
+        for (const btn of Array.from(document.querySelectorAll("button, a[href], [role='button']")).slice(0, 50)) {
+          const text = (btn.textContent || "").trim();
+          const ariaLabel = btn.getAttribute("aria-label") || btn.getAttribute("aria-labelledby");
+          const title = btn.getAttribute("title");
+          if (!text && !ariaLabel && !title) {
+            violations.push({
+              selector: sel(btn),
+              type: "no-label",
+              html: snippet(btn),
+              ariaLabel: ariaLabel || undefined,
+            });
+          }
+        }
+
+        // 3. Form inputs without a label (no <label for>, aria-label, or wrapping label)
+        for (const input of Array.from(document.querySelectorAll("input, textarea, select")).slice(0, 50)) {
+          const el = input as HTMLInputElement;
+          if (el.type === "hidden" || el.type === "submit" || el.type === "button") continue;
+          const id = el.id;
+          const hasLabelFor = id && document.querySelector(`label[for="${id}"]`);
+          const hasAriaLabel = el.getAttribute("aria-label") || el.getAttribute("aria-labelledby");
+          const hasWrappingLabel = el.closest("label");
+          const hasPlaceholder = el.placeholder;
+          if (!hasLabelFor && !hasAriaLabel && !hasWrappingLabel && !hasPlaceholder) {
+            violations.push({ selector: sel(el), type: "form-label-missing", html: snippet(el) });
+          }
+        }
+
+        return violations.slice(0, 20);
+      })
+      .catch(() => []);
+  }
+
+  // Security header audit: inspects the main-document response headers captured
+  // during navigation and flags missing protections. Returns one issue object
+  // per missing/weak header. Does not perform active probing (that's done by
+  // the agent injecting payloads via the type action).
+  checkSecurityHeaders(): Array<{ securityType: string; evidence: string; header?: string }> {
+    const issues: Array<{ securityType: string; evidence: string; header?: string }> = [];
+    const h = this.lastResponseHeaders;
+    // Header names are lowercased by Playwright's allHeaders().
+    if (!h["content-security-policy"]) {
+      issues.push({
+        securityType: "missing-security-headers",
+        evidence: "Response is missing Content-Security-Policy header (XSS/injection mitigation)",
+        header: "content-security-policy",
+      });
+    }
+    if (!h["x-frame-options"] && !(h["content-security-policy"] || "").includes("frame-ancestors")) {
+      issues.push({
+        securityType: "missing-security-headers",
+        evidence: "Response is missing X-Frame-Options header (clickjacking mitigation)",
+        header: "x-frame-options",
+      });
+    }
+    if (!h["x-content-type-options"]) {
+      issues.push({
+        securityType: "missing-security-headers",
+        evidence: "Response is missing X-Content-Type-Options: nosniff header (MIME-sniffing mitigation)",
+        header: "x-content-type-options",
+      });
+    }
+    if (!h["strict-transport-security"]) {
+      issues.push({
+        securityType: "missing-security-headers",
+        evidence: "Response is missing Strict-Transport-Security header (HTTPS enforcement)",
+        header: "strict-transport-security",
+      });
+    }
+    // Insecure cookies: Set-Cookie without HttpOnly/Secure flags.
+    for (const cookie of this.lastSetCookies) {
+      const lower = cookie.toLowerCase();
+      if (lower && (!lower.includes("httponly") || !lower.includes("secure"))) {
+        const name = cookie.split("=")[0];
+        issues.push({
+          securityType: "insecure-cookie",
+          evidence: `Cookie "${name}" missing HttpOnly and/or Secure flag`,
+          header: "set-cookie",
+        });
+        break; // one representative issue is enough
+      }
+    }
+    return issues;
+  }
+
+  // Active XSS reflection check: after a payload has been typed into a field and
+  // submitted, this checks whether the raw (unescaped) payload appears in the
+  // rendered DOM — a strong signal the input is reflected without sanitization.
+  async checkXssReflection(payload: string): Promise<boolean> {
+    if (!this.page) return false;
+    return await this.page
+      .evaluate((p: string) => {
+        // Look for the raw payload in the HTML source (not textContent, which
+        // would be escaped). If the literal <script> survived into innerHTML,
+        // it was reflected unsanitized.
+        return document.documentElement.innerHTML.includes(p);
+      }, payload)
+      .catch(() => false);
+  }
+
+  // SEO + Web Vitals audit: collects missing SEO tags and approximate
+  // Core Web Vitals, plus a list of oversized image assets. Web Vitals here
+  // are best-effort from the Performance API (CLS via LayoutShift entries,
+  // LCP via the largest-contentful-paint entry when available).
+  async measureSeoAndVitals(): Promise<{
+    seoIssues: string[];
+    webVitals: { fcp?: number; lcp?: number; cls?: number };
+    unoptimizedAssets: Array<{ url: string; type: string; size: number }>;
+  }> {
+    if (!this.page) return { seoIssues: [], webVitals: {}, unoptimizedAssets: [] };
+    return await this.page
+      .evaluate(() => {
+        const seoIssues: string[] = [];
+        if (!document.querySelector("title") || !document.title.trim()) {
+          seoIssues.push("missing-title");
+        }
+        if (!document.querySelector('meta[name="description"]')) {
+          seoIssues.push("missing-meta-description");
+        }
+        if (!document.querySelector('meta[name="viewport"]')) {
+          seoIssues.push("missing-viewport-meta");
+        }
+        if (document.querySelectorAll("h1").length === 0) {
+          seoIssues.push("missing-h1");
+        }
+        if (document.querySelectorAll("h1").length > 1) {
+          seoIssues.push("multiple-h1");
+        }
+        // Duplicate IDs (invalid HTML, breaks anchors + a11y)
+        const ids = Array.from(document.querySelectorAll("[id]")).map((e) => e.id);
+        if (new Set(ids).size !== ids.length) {
+          seoIssues.push("duplicate-ids");
+        }
+
+        // Web Vitals (best-effort)
+        const paint = performance.getEntriesByType("paint");
+        const fcp = paint.find((p) => p.name === "first-contentful-paint")?.startTime;
+
+        const lcpEntries = performance.getEntriesByType("largest-contentful-paint");
+        const lcp =
+          lcpEntries.length > 0 ? (lcpEntries[lcpEntries.length - 1] as PerformanceEntry).startTime : undefined;
+
+        let cls = 0;
+        for (const entry of performance.getEntriesByType("layout-shift") as PerformanceEntry[]) {
+          const e = entry as PerformanceEntry & { value?: number; hadRecentInput?: boolean };
+          if (!e.hadRecentInput && typeof e.value === "number") cls += e.value;
+        }
+
+        // Oversized images via Resource Timing (transferSize > 100KB)
+        const unoptimizedAssets: Array<{ url: string; type: string; size: number }> = [];
+        for (const r of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
+          if (r.initiatorType === "img" && r.transferSize > 100_000) {
+            unoptimizedAssets.push({ url: r.name, type: "image", size: r.transferSize });
+          }
+        }
+
+        return {
+          seoIssues,
+          webVitals: { fcp, lcp, cls: Math.round(cls * 1000) / 1000 },
+          unoptimizedAssets: unoptimizedAssets.slice(0, 10),
+        };
+      })
+      .catch(() => ({ seoIssues: [], webVitals: {}, unoptimizedAssets: [] }));
   }
 }

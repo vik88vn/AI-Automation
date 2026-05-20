@@ -288,6 +288,11 @@ export class DeepAgent {
   private slowNavigations = new Map<string, number[]>();
   private reportDir: string;
   private analysis?: AnalysisResult;
+  // URLs already audited by the advanced detectors, so we file each
+  // accessibility / security / SEO bug once per page instead of once per test.
+  private a11yAuditedUrls = new Set<string>();
+  private securityAuditedUrls = new Set<string>();
+  private seoAuditedUrls = new Set<string>();
 
   constructor(private readonly opts: AgentRunOptions) {
     if (!opts.provider) {
@@ -884,6 +889,12 @@ export class DeepAgent {
       }
     }
 
+    // ── Advanced detectors (accessibility / security / SEO+perf) ──────────
+    // Run page-level audits on the final page state. Deduped per-URL so the
+    // same page audited by multiple tests only files one bug each. These run
+    // regardless of pass/fail since they audit the page, not the test flow.
+    await this.runAdvancedDetectors(test, id, lastUrl);
+
     if (failedAt === undefined) {
       this.state.setTestStatus(id, "passed");
       this.emit("test_passed", { test, stepLogs });
@@ -1362,6 +1373,90 @@ export class DeepAgent {
         },
       };
       this.emit("bug_reported", { bug, source: "frontend_gap_auto" });
+    }
+  }
+
+  // Orchestrates the three page-level advanced audits on the current page.
+  // Each audit is deduped per-URL so we don't refile the same page bug for
+  // every test that happens to land on it. Failures are swallowed so a flaky
+  // audit never breaks the test run.
+  private async runAdvancedDetectors(test: TestCase, testId: string, url: string): Promise<void> {
+    if (!url || url === "about:blank") return;
+    const pageUrl = url.split("#")[0]; // ignore hash for dedup
+
+    // 1. Accessibility audit
+    if (!this.a11yAuditedUrls.has(pageUrl)) {
+      this.a11yAuditedUrls.add(pageUrl);
+      try {
+        const violations = await this.browser.extractA11yViolations();
+        if (violations.length > 0) {
+          this.autoreportAccessibilityBug(test, testId, violations, pageUrl);
+        }
+      } catch {
+        // audit failure is non-fatal
+      }
+    }
+
+    // 2. Security audit — passive header check + active XSS reflection check.
+    if (!this.securityAuditedUrls.has(pageUrl)) {
+      this.securityAuditedUrls.add(pageUrl);
+      try {
+        const headerIssues = this.browser.checkSecurityHeaders();
+        // Only file the single most-severe header issue per page to avoid noise.
+        if (headerIssues.length > 0) {
+          const issue = headerIssues[0];
+          this.autoreportSecurityBug(
+            test,
+            testId,
+            issue.securityType,
+            issue.evidence,
+            pageUrl,
+            undefined,
+            issue.header ? `Missing header: ${issue.header}` : undefined
+          );
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
+    // Active XSS check: if any step in this test typed a script-like payload,
+    // check whether it was reflected unsanitized into the DOM.
+    try {
+      const xssStep = test.steps.find(
+        (s) => s.action === "type" && typeof s.value === "string" && /<script|onerror=|javascript:/i.test(s.value)
+      );
+      if (xssStep?.value) {
+        const reflected = await this.browser.checkXssReflection(xssStep.value);
+        if (reflected) {
+          this.autoreportSecurityBug(
+            test,
+            testId,
+            "xss",
+            `Payload was reflected unsanitized into the page DOM`,
+            pageUrl,
+            xssStep.value,
+            xssStep.value
+          );
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+
+    // 3. SEO + performance audit
+    if (!this.seoAuditedUrls.has(pageUrl)) {
+      this.seoAuditedUrls.add(pageUrl);
+      try {
+        const { seoIssues, webVitals, unoptimizedAssets } = await this.browser.measureSeoAndVitals();
+        const hasPerfIssue =
+          (webVitals.cls ?? 0) > 0.1 || (webVitals.lcp ?? 0) > 2500 || (webVitals.fcp ?? 0) > 1800;
+        if (seoIssues.length > 0 || hasPerfIssue || unoptimizedAssets.length > 0) {
+          this.autoreportSeoPerf(test, testId, seoIssues, webVitals, unoptimizedAssets, pageUrl);
+        }
+      } catch {
+        // non-fatal
+      }
     }
   }
 
