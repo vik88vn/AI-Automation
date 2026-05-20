@@ -4,6 +4,8 @@
 
 Point it at a URL — the agent figures out the rest. It navigates, clicks, types, and extracts page structure on its own; generates test cases as it discovers features; runs them with retries; classifies the failures; **opens the project source, edits the offending files, restarts the target app, and confirms the fix works**; and ships a structured report that separates real bugs from broken tests.
 
+> **Building a SaaS product?** See [**CLOUDFLARE_DEPLOYMENT.md**](./CLOUDFLARE_DEPLOYMENT.md) for production deployment on Cloudflare Pages (frontend) + Railway/Render (backend).
+
 ---
 
 ## What's new (May 2026)

@@ -1,0 +1,28 @@
+# Cloudflare Pages configuration for the React frontend
+# Deploy with: npx wrangler pages deploy dist
+
+name = "ai-qa-engineer-frontend"
+type = "javascript"
+compatibility_date = "2024-12-01"
+
+# Build configuration
+[build]
+command = "npm run build"
+cwd = "."  # Run from frontend/ directory
+
+# Environment variables for build
+[build.env.production]
+VITE_API_TARGET = "https://api.example.com"
+
+[build.env.staging]
+VITE_API_TARGET = "https://staging-api.example.com"
+
+[build.env.development]
+VITE_API_TARGET = "http://localhost:4310"
+
+# Output directory
+output_dir = "dist"
+
+# Pages routes: SPA fallback to index.html for client-side routing
+[[routes]]
+pattern = "example.com/*"
