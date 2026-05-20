@@ -14,19 +14,30 @@
     "demo": "node scripts/seed-demo.mjs",
     "install-browsers": "playwright install chromium",
     "agent": "tsx src/agent/cli.ts",
-    "agent:serve": "tsx src/agent/serve.ts"
+    "agent:serve": "tsx src/agent/serve.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:validate": "prisma validate"
   },
   "engines": {
     "node": ">=18.17"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
-    "playwright": "^1.48.0",
-    "dotenv": "^16.4.5"
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.3",
+    "playwright": "^1.48.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
+    "prisma": "^6.19.3",
+    "tsx": "^4.22.3",
     "typescript": "^5.6.0"
   }
 }

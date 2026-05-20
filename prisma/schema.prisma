@@ -1,0 +1,207 @@
+// Prisma schema for the AI QA Engineer SaaS backend.
+//
+// Provider is PostgreSQL (production target on Railway). For local dev, point
+// DATABASE_URL at a local Postgres instance (Docker: `docker run -e
+// POSTGRES_PASSWORD=dev -p 5432:5432 postgres`) and run `npx prisma migrate dev`.
+//
+// Multi-tenancy model: every Run/Bug is reachable only through a Project, and
+// every Project belongs to a User (owner) plus optional ProjectMembers. The API
+// layer enforces `where: { project: { OR: [owner, member] } }` on every query.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Users & access control
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String?
+  lastName     String?
+  role         Role     @default(MEMBER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedProjects   Project[]       @relation("ProjectOwner")
+  memberships     ProjectMember[]
+  triggeredRuns   Run[]
+  comments        BugComment[]
+  assignedBugs    Bug[]           @relation("BugAssignee")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  targetUrl   String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  runs    Run[]
+  members ProjectMember[]
+
+  @@index([ownerId])
+}
+
+// Join table for sharing a project with other users (collaboration).
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @default(VIEWER)
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// QA Runs
+// ─────────────────────────────────────────────────────────────────────────
+
+model Run {
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String // who triggered the run
+  user      User      @relation(fields: [userId], references: [id])
+  url       String
+  status    RunStatus @default(IN_PROGRESS)
+  provider  String? // "anthropic" | "openai" | "ollama"
+  model     String?
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  // Denormalized summary counts for fast dashboard queries.
+  testsTotal  Int @default(0)
+  testsPassed Int @default(0)
+  testsFailed Int @default(0)
+  durationMs  Int @default(0)
+
+  bugs      Bug[]
+  testCases TestCase[]
+  createdAt DateTime   @default(now())
+
+  @@index([projectId])
+  @@index([projectId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Bugs & collaboration
+// ─────────────────────────────────────────────────────────────────────────
+
+model Bug {
+  id          String    @id @default(cuid())
+  runId       String
+  run         Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  severity    Severity
+  type        BugType
+  reproSteps  String[]
+  expected    String
+  actual      String
+  url         String
+  status      BugStatus @default(OPEN)
+
+  assignedToId String?
+  assignedTo   User?   @relation("BugAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  evidence   Json?
+  screenshot String? // object-storage key (R2/S3)
+
+  comments  BugComment[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([runId])
+  @@index([assignedToId])
+  @@index([status])
+}
+
+model BugComment {
+  id        String   @id @default(cuid())
+  bugId     String
+  bug       Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([bugId])
+}
+
+model TestCase {
+  id        String     @id @default(cuid())
+  runId     String
+  run       Run        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  title     String
+  steps     String[]
+  status    TestStatus
+  createdAt DateTime   @default(now())
+
+  @@index([runId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum RunStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum BugStatus {
+  OPEN
+  ASSIGNED
+  IN_REVIEW
+  FIXED
+  CLOSED
+  WONTFIX
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BugType {
+  NETWORK_ERROR
+  AUTHENTICATION
+  RACE_CONDITION
+  PERFORMANCE
+  VALIDATION_GAP
+  ACCESSIBILITY
+  SECURITY
+  SEO
+}
+
+enum TestStatus {
+  PASSED
+  FAILED
+}
