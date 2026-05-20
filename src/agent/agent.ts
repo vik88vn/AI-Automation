@@ -1365,6 +1365,171 @@ export class DeepAgent {
     }
   }
 
+  // Accessibility detector: checks for WCAG violations (missing alt text, no labels, low contrast)
+  private autoreportAccessibilityBug(
+    test: TestCase,
+    testId: string,
+    violations: Array<{ selector: string; type: string; html: string; ariaLabel?: string; contrastRatio?: number }>,
+    url: string
+  ): void {
+    if (violations.length === 0) return;
+
+    const reproSteps = test.steps.map(
+      (s, i) => `${i + 1}. ${s.action} ${s.target}${s.value !== undefined ? ` value="${s.value}"` : ""}`
+    );
+
+    const violationSummary = violations.map((v) => `${v.type} on ${v.selector}`).join("; ");
+
+    const bug = this.state.reportBug({
+      title: `[Auto] Accessibility violation(s): ${violationSummary}`,
+      severity: test.type === "authentication" ? "high" : "medium",
+      impact:
+        "Component lacks proper accessibility attributes (alt text, aria-labels, etc). " +
+        "Screen reader users cannot access this feature. Violates WCAG guidelines.",
+      reproSteps,
+      expected: "All interactive elements have proper ARIA labels and alt text; color contrast >= 4.5:1",
+      actual: `Found ${violations.length} accessibility violation(s): ${violationSummary}`,
+      url,
+      testId,
+    });
+    bug.source = "analysis";
+    bug.type = "accessibility";
+    bug.evidence = {
+      error: `Accessibility violations: ${violationSummary}`,
+      wcagLevel: "AA",
+      violationType: violations[0]?.type as any,
+      element: {
+        selector: violations[0]?.selector ?? "",
+        html: violations[0]?.html ?? "",
+        ariaLabel: violations[0]?.ariaLabel,
+        contrastRatio: violations[0]?.contrastRatio,
+      },
+      logs: violations,
+    };
+    this.emit("bug_reported", { bug, source: "accessibility_auto" });
+  }
+
+  // Security detector: checks for XSS, CSRF, secrets exposure, missing security headers
+  private autoreportSecurityBug(
+    test: TestCase,
+    testId: string,
+    securityType: string,
+    evidence: string,
+    url: string,
+    payload?: string,
+    responseSnippet?: string
+  ): void {
+    const severityMap: Record<string, Severity> = {
+      xss: "critical",
+      injection: "critical",
+      csrf: "high",
+      "secrets-exposure": "high",
+      "missing-security-headers": "medium",
+      "insecure-cookie": "medium",
+    };
+
+    const reproSteps = test.steps.map(
+      (s, i) => `${i + 1}. ${s.action} ${s.target}${s.value !== undefined ? ` value="${s.value}"` : ""}`
+    );
+
+    const bug = this.state.reportBug({
+      title: `[Auto] Security vulnerability: ${securityType}`,
+      severity: severityMap[securityType] || "medium",
+      impact:
+        securityType === "xss"
+          ? "Attacker can inject JavaScript that executes in victim browsers, steal session tokens, or deface content."
+          : securityType === "csrf"
+            ? "Attacker can forge requests on behalf of authenticated users to perform unauthorized actions."
+            : "Sensitive data (API keys, credentials, PII) is exposed in HTTP responses or logs.",
+      reproSteps,
+      expected: "All user inputs are sanitized; security headers present; no secrets in responses",
+      actual: evidence,
+      url,
+      testId,
+    });
+    bug.source = "analysis";
+    bug.type = "security";
+    bug.evidence = {
+      error: evidence,
+      securityType: securityType as any,
+      securityPayload: payload,
+      securityResponse: responseSnippet,
+      logs: { type: securityType, evidence },
+    };
+    this.emit("bug_reported", { bug, source: "security_auto" });
+  }
+
+  // SEO & Performance detector: checks for missing meta tags, slow page loads, unoptimized assets
+  private autoreportSeoPerf(
+    test: TestCase,
+    testId: string,
+    seoIssues: string[],
+    webVitals: Record<string, number>,
+    unoptimizedAssets: Array<{ url: string; type: string; size: number }>,
+    url: string
+  ): void {
+    const allIssues = [...(seoIssues.length > 0 ? ["SEO"] : [])];
+    const perfIssues = Object.entries(webVitals)
+      .filter(([key, val]) => {
+        if (key === "cls") return val > 0.1; // High CLS
+        if (key === "lcp") return val > 2500; // Slow LCP
+        if (key === "fcp") return val > 1800; // Slow FCP
+        return false;
+      })
+      .map(([key]) => key.toUpperCase());
+
+    if (perfIssues.length > 0) allIssues.push("Performance");
+    if (unoptimizedAssets.length > 0) allIssues.push("Asset Optimization");
+
+    const reproSteps = test.steps.map(
+      (s, i) => `${i + 1}. ${s.action} ${s.target}${s.value !== undefined ? ` value="${s.value}"` : ""}`
+    );
+
+    const severity: Severity =
+      (webVitals.cls ?? 0) > 0.1 || (webVitals.lcp ?? 0) > 3000 ? "high" : "medium";
+
+    const bug = this.state.reportBug({
+      title: `[Auto] SEO & Performance issue: ${allIssues.join(" + ")}`,
+      severity,
+      impact:
+        severity === "high"
+          ? "Page is slow or visually unstable, leading to poor user experience and lower search rankings."
+          : "Page lacks SEO metadata or has unoptimized assets, reducing discoverability and performance.",
+      reproSteps,
+      expected:
+        "Page has title, meta-description, good Core Web Vitals (CLS<0.1, LCP<2.5s, FCP<1.8s), and optimized assets",
+      actual: allIssues.join("; ") + (seoIssues.length > 0 ? `: ${seoIssues.join(", ")}` : ""),
+      url,
+      testId,
+    });
+    bug.source = "analysis";
+    bug.type = "seo";
+    bug.evidence = {
+      error: `SEO & Performance issues detected`,
+      seoIssues,
+      webVitals: {
+        fcp: webVitals.fcp,
+        lcp: webVitals.lcp,
+        cls: webVitals.cls,
+      },
+      unoptimizedAssets:
+        unoptimizedAssets.length > 0
+          ? unoptimizedAssets.map((a) => ({
+              url: a.url,
+              type: a.type,
+              size: a.size,
+            }))
+          : undefined,
+      resources: {
+        totalSize: unoptimizedAssets.reduce((sum, a) => sum + a.size, 0),
+        count: unoptimizedAssets.length,
+        unoptimized: unoptimizedAssets.length,
+      },
+      logs: { seoIssues, webVitals, unoptimizedAssets },
+    };
+    this.emit("bug_reported", { bug, source: "seo_perf_auto" });
+  }
+
   // ── Deterministic test seeding ─────────────────────────────────────────
   //
   // The LLM picks tests non-deterministically. Across runs it sometimes

@@ -94,6 +94,16 @@ export interface TestCase {
 
 export type Severity = "critical" | "high" | "medium" | "low";
 
+export type BugType =
+  | "network_error"
+  | "authentication"
+  | "race_condition"
+  | "performance"
+  | "validation_gap"
+  | "accessibility"
+  | "security"
+  | "seo";
+
 export interface BugEvidence {
   error: string;
   logs: unknown;
@@ -104,12 +114,64 @@ export interface BugEvidence {
     found: boolean;
     visible: boolean;
   };
+
+  // Accessibility violations (WCAG)
+  wcagLevel?: "A" | "AA" | "AAA";
+  violationType?:
+    | "missing-alt"
+    | "no-label"
+    | "low-contrast"
+    | "keyboard-trap"
+    | "form-label-missing"
+    | "color-only-indicator";
+  element?: {
+    selector: string;
+    html: string;
+    role?: string;
+    ariaLabel?: string;
+    contrastRatio?: number;
+  };
+
+  // Security vulnerabilities
+  securityType?:
+    | "xss"
+    | "csrf"
+    | "injection"
+    | "secrets-exposure"
+    | "missing-security-headers"
+    | "insecure-cookie";
+  cvss?: number; // CVSS v3.1 score (0-10)
+  securityPayload?: string; // The payload used to detect the vuln
+  securityResponse?: string; // Response snippet showing the vuln
+  headers?: Record<string, string>; // Security-relevant headers
+
+  // SEO & Performance
+  webVitals?: {
+    fcp?: number; // First Contentful Paint (ms)
+    lcp?: number; // Largest Contentful Paint (ms)
+    cls?: number; // Cumulative Layout Shift (0-1)
+    fid?: number; // First Input Delay (ms)
+    ttfb?: number; // Time to First Byte (ms)
+  };
+  seoIssues?: string[]; // ["missing-title", "missing-meta-description", ...]
+  unoptimizedAssets?: Array<{
+    url: string;
+    type: string; // "image", "script", "stylesheet"
+    size: number; // bytes
+    optimizedSize?: number;
+  }>;
+  resources?: {
+    totalSize: number; // bytes
+    count: number;
+    unoptimized: number;
+  };
 }
 
 export interface BugReport {
   id: string;
   title: string;
   severity: Severity;
+  type?: BugType; // Category of bug
   impact: string;
   reproSteps: string[];
   expected: string;
