@@ -10,6 +10,7 @@ import { hashPassword, verifyPassword } from "../auth/password.js";
 import { issueAccessToken, issueRefreshToken, verifyToken } from "../auth/jwt.js";
 import { requireAuth, AuthError } from "../auth/middleware.js";
 import { sendJson, readJson, requireString, HttpError } from "../lib/http.js";
+import { rateLimitAuth } from "../lib/rateLimit.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -47,6 +48,7 @@ function publicUser(u: {
 }
 
 async function signup(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  rateLimitAuth(req, "signup");
   const body = await readJson<SignupBody>(req);
   const email = requireString(body.email, "email").toLowerCase().trim();
   const password = requireString(body.password, "password");
@@ -74,6 +76,7 @@ async function signup(req: IncomingMessage, res: ServerResponse): Promise<void> 
 }
 
 async function login(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  rateLimitAuth(req, "login");
   const body = await readJson<LoginBody>(req);
   const email = requireString(body.email, "email").toLowerCase().trim();
   const password = requireString(body.password, "password");

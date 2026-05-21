@@ -26,9 +26,15 @@ export interface ExportRun {
   testsFailed: number;
 }
 
-// Escape a single CSV field per RFC 4180 (quote if it contains comma/quote/newline).
+// Escape a single CSV field per RFC 4180 (quote if it contains comma/quote/
+// newline), AND defend against CSV formula injection: a cell beginning with
+// = + - @ (or tab/CR) can be executed as a formula when opened in Excel/Sheets,
+// so we prefix those with a single quote to neutralize them.
 function csvField(value: unknown): string {
-  const s = value == null ? "" : String(value);
+  let s = value == null ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
+  }
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }

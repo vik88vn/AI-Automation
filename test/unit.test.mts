@@ -14,6 +14,8 @@ import {
 } from "../src/auth/jwt.js";
 import { hashPassword, verifyPassword } from "../src/auth/password.js";
 import { bugsToCsv, buildHtmlReport, type ExportBug } from "../src/services/export.js";
+import { rateLimit, __resetRateLimits } from "../src/lib/rateLimit.js";
+import { HttpError as HttpErr } from "../src/lib/http.js";
 
 process.env.JWT_SECRET ??= "unit-test-secret-0123456789abcdef";
 
@@ -136,4 +138,42 @@ test("buildHtmlReport handles zero bugs", () => {
     "Empty"
   );
   assert.ok(html.includes("No bugs"));
+});
+
+// ── Security hardening ─────────────────────────────────────────────────────
+test("bugsToCsv neutralizes formula injection", () => {
+  const evil: ExportBug = {
+    id: "b3",
+    title: "=cmd|'/c calc'!A1",
+    severity: "HIGH",
+    type: "SECURITY",
+    status: "OPEN",
+    url: "http://x",
+    assignedTo: null,
+    createdAt: "2026-05-20T00:00:00.000Z",
+  };
+  const csv = bugsToCsv([evil]);
+  // The "=" cell must be prefixed with a single quote (and then quoted because
+  // it contains a comma-like char set). Either way the raw "=cmd" must not
+  // appear at a cell boundary unescaped.
+  assert.ok(csv.includes("'=cmd"), "formula should be prefixed with single quote");
+  assert.ok(!/(^|,)=cmd/m.test(csv), "no bare =cmd at a cell boundary");
+});
+
+test("rateLimit allows up to limit then throws 429", () => {
+  __resetRateLimits();
+  const key = "test:key";
+  for (let i = 0; i < 5; i += 1) rateLimit(key, 5, 60_000); // 5 allowed
+  assert.throws(
+    () => rateLimit(key, 5, 60_000), // 6th rejected
+    (e) => e instanceof HttpErr && e.status === 429
+  );
+});
+
+test("rateLimit isolates distinct keys", () => {
+  __resetRateLimits();
+  rateLimit("a", 1, 60_000);
+  // different key still has its own budget
+  assert.doesNotThrow(() => rateLimit("b", 1, 60_000));
+  assert.throws(() => rateLimit("a", 1, 60_000), (e) => e instanceof HttpErr && e.status === 429);
 });
