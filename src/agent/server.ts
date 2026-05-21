@@ -11,6 +11,7 @@ import { handleProjectRoutes } from "../routes/projects.js";
 import { handleBugRoutes } from "../routes/bugs.js";
 import { handleMetricsRoutes } from "../routes/metrics.js";
 import { handleExportRoutes } from "../routes/export.js";
+import { extractZipToTemp, zipDirToBase64, type ExtractedSource } from "../services/zipSource.js";
 
 interface ActiveRun {
   id: string;
@@ -375,6 +376,12 @@ interface FixBody {
     evidence?: { error: string; stackTrace?: string; errorType?: string };
   };
   projectRoot?: string;
+  /**
+   * SaaS mode: base64-encoded ZIP of the project source. When provided (and no
+   * projectRoot), the server extracts it to a temp dir, runs the fix there, and
+   * returns the patched source as base64 in the final `done` event.
+   */
+  sourceZip?: string;
   targetUrl?: string;
   restartCommand?: string;
   skipRestart?: boolean;
@@ -395,14 +402,30 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
     sendJson(res, 400, { error: "bug object is required" });
     return;
   }
-  const projectRoot = parsed.projectRoot || process.env.PROJECT_ROOT;
+
+  // SaaS mode: a base64 ZIP can stand in for a local projectRoot. Extract it to
+  // a temp dir now; we clean it up (and optionally re-zip the patched result)
+  // after the fix completes.
+  let extracted: ExtractedSource | undefined;
+  if (!parsed.projectRoot && !process.env.PROJECT_ROOT && parsed.sourceZip) {
+    try {
+      extracted = await extractZipToTemp(parsed.sourceZip);
+    } catch (err) {
+      sendJson(res, 400, { error: `Invalid source ZIP: ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
+  }
+
+  const projectRoot = extracted?.dir || parsed.projectRoot || process.env.PROJECT_ROOT;
   if (!projectRoot) {
     sendJson(res, 400, {
-      error: "projectRoot is required. Set it in Settings or set the PROJECT_ROOT env var.",
+      error: "projectRoot or sourceZip is required. Set projectRoot in Settings, PROJECT_ROOT env, or upload a ZIP.",
     });
     return;
   }
   const targetUrl = parsed.targetUrl || parsed.bug.url;
+  // When running from an uploaded ZIP there's no long-lived server to restart.
+  const skipRestart = extracted ? true : parsed.skipRestart;
 
   const settings: ProviderResolverInput = {
     preferred: parsed.providerSettings?.preferred ?? "auto",
@@ -433,7 +456,7 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
     provider: providerConfig,
     targetUrl,
     restartCommand: parsed.restartCommand,
-    skipRestart: parsed.skipRestart,
+    skipRestart,
     onEvent: (event: FixEvent) => {
       try {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -446,7 +469,9 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
   try {
     const agent = new FixAgent(fixRequest);
     const result = await agent.run();
-    res.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
+    // In ZIP mode, return the patched source so the user can download it.
+    const patchedZip = extracted ? zipDirToBase64(extracted.dir) : undefined;
+    res.write(`event: done\ndata: ${JSON.stringify({ ...result, patchedZip })}\n\n`);
   } catch (err) {
     const errorEvent = {
       type: "fix_error",
@@ -455,6 +480,8 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
     };
     res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
   } finally {
+    // Always clean up the extracted temp dir.
+    if (extracted) await extracted.cleanup().catch(() => undefined);
     res.end();
   }
 }

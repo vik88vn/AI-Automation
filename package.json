@@ -28,12 +28,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "@prisma/client": "^6.19.3",
+    "adm-zip": "^0.5.17",
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.3",
     "playwright": "^1.48.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",

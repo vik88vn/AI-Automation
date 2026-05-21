@@ -16,6 +16,10 @@ import { hashPassword, verifyPassword } from "../src/auth/password.js";
 import { bugsToCsv, buildHtmlReport, type ExportBug } from "../src/services/export.js";
 import { rateLimit, __resetRateLimits } from "../src/lib/rateLimit.js";
 import { HttpError as HttpErr } from "../src/lib/http.js";
+import { extractZipToTemp, zipDirToBase64 } from "../src/services/zipSource.js";
+import AdmZip from "adm-zip";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 process.env.JWT_SECRET ??= "unit-test-secret-0123456789abcdef";
 
@@ -176,4 +180,42 @@ test("rateLimit isolates distinct keys", () => {
   // different key still has its own budget
   assert.doesNotThrow(() => rateLimit("b", 1, 60_000));
   assert.throws(() => rateLimit("a", 1, 60_000), (e) => e instanceof HttpErr && e.status === 429);
+});
+
+// ── ZIP source (SaaS fix-agent upload) ─────────────────────────────────────
+test("extractZipToTemp round-trips files and re-zips", async () => {
+  const zip = new AdmZip();
+  zip.addFile("server.js", Buffer.from("console.log('hi')"));
+  zip.addFile("src/app.ts", Buffer.from("export const x = 1;"));
+  const b64 = zip.toBuffer().toString("base64");
+
+  const { dir, cleanup } = await extractZipToTemp(b64);
+  try {
+    const server = await readFile(path.join(dir, "server.js"), "utf8");
+    assert.equal(server, "console.log('hi')");
+    const app = await readFile(path.join(dir, "src/app.ts"), "utf8");
+    assert.equal(app, "export const x = 1;");
+
+    // Re-zip and confirm it contains the entries.
+    const out = zipDirToBase64(dir);
+    const reread = new AdmZip(Buffer.from(out, "base64"));
+    const names = reread.getEntries().map((e) => e.entryName).sort();
+    assert.ok(names.includes("server.js"));
+  } finally {
+    await cleanup();
+  }
+});
+
+test("extractZipToTemp rejects Zip Slip path traversal", async () => {
+  // adm-zip sanitizes "../" in addFile, so craft the malicious entry name
+  // directly (as a real attacker's zip tool would) to exercise our defense.
+  const zip = new AdmZip();
+  zip.addFile("placeholder.txt", Buffer.from("pwned"));
+  zip.getEntries()[0].entryName = "../../evil.txt";
+  const b64 = zip.toBuffer().toString("base64");
+  await assert.rejects(() => extractZipToTemp(b64), /escapes target dir/);
+});
+
+test("extractZipToTemp rejects empty input", async () => {
+  await assert.rejects(() => extractZipToTemp(""), /Empty or invalid/);
 });
