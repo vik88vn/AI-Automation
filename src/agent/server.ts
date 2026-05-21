@@ -9,6 +9,8 @@ import type { AgentEvent, AgentRunResult } from "./types.js";
 import { handleAuthRoutes } from "../routes/auth.js";
 import { handleProjectRoutes } from "../routes/projects.js";
 import { handleBugRoutes } from "../routes/bugs.js";
+import { handleMetricsRoutes } from "../routes/metrics.js";
+import { handleExportRoutes } from "../routes/export.js";
 
 interface ActiveRun {
   id: string;
@@ -533,6 +535,8 @@ export function startServer(port = 4310): void {
     void (async () => {
       try {
         if (await handleAuthRoutes(req, res, url)) return;
+        if (await handleMetricsRoutes(req, res, url)) return;
+        if (await handleExportRoutes(req, res, url)) return;
         if (await handleProjectRoutes(req, res, url)) return;
         if (await handleBugRoutes(req, res, url)) return;
         sendJson(res, 404, { error: "not found", path: route });

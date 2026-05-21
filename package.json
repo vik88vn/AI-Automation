@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc && mkdir -p dist/agent && cp src/agent/dashboard.html dist/agent/dashboard.html",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.mts",
     "qa": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "serve": "node scripts/serve.mjs",
