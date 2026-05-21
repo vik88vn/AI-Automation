@@ -6,6 +6,9 @@ import { runDeepAgent } from "./agent.js";
 import { resolveProviderConfig, createProvider, type ProviderResolverInput } from "./llm.js";
 import { FixAgent, type FixRequest, type FixEvent } from "./fixer.js";
 import type { AgentEvent, AgentRunResult } from "./types.js";
+import { handleAuthRoutes } from "../routes/auth.js";
+import { handleProjectRoutes } from "../routes/projects.js";
+import { handleBugRoutes } from "../routes/bugs.js";
 
 interface ActiveRun {
   id: string;
@@ -371,6 +374,8 @@ interface FixBody {
   };
   projectRoot?: string;
   targetUrl?: string;
+  restartCommand?: string;
+  skipRestart?: boolean;
   providerSettings?: ProviderResolverInput;
 }
 
@@ -425,6 +430,8 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
     projectRoot,
     provider: providerConfig,
     targetUrl,
+    restartCommand: parsed.restartCommand,
+    skipRestart: parsed.skipRestart,
     onEvent: (event: FixEvent) => {
       try {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -456,9 +463,9 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
 
 function handleCors(res: ServerResponse): void {
   res.writeHead(204, {
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-origin": process.env.CORS_ORIGIN ?? "*",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    "access-control-allow-headers": "content-type, authorization",
     "access-control-max-age": "86400",
   });
   res.end();
@@ -519,7 +526,25 @@ export function startServer(port = 4310): void {
       });
       return;
     }
-    sendJson(res, 404, { error: "not found", path: route });
+
+    // SaaS API routes (auth, projects, bugs). Each dispatcher returns true if
+    // it handled the request; otherwise we fall through to 404. These are
+    // async (DB-backed) so we run them in a sequential chain.
+    void (async () => {
+      try {
+        if (await handleAuthRoutes(req, res, url)) return;
+        if (await handleProjectRoutes(req, res, url)) return;
+        if (await handleBugRoutes(req, res, url)) return;
+        sendJson(res, 404, { error: "not found", path: route });
+      } catch (err) {
+        // Last-resort guard: a dispatcher threw before sending a response.
+        if (!res.headersSent) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : "Internal server error",
+          });
+        }
+      }
+    })();
   });
 
   server.listen(port, () => {
