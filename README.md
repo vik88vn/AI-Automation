@@ -21,6 +21,35 @@ The QA agent is now a **two-stage system**: detect and fix.
 
 ---
 
+## SaaS platform (multi-tenant)
+
+The engine now ships with a full multi-tenant backend so it can run as a hosted product, not just a local tool.
+
+- **8 deterministic detectors.** The original 5 (network, auth bypass, race, performance, validation) plus **accessibility** (WCAG: missing alt/labels, contrast), **security** (XSS reflection, missing CSP/X-Frame-Options/HSTS, insecure cookies), and **SEO/performance** (missing meta tags, Core Web Vitals, oversized assets). See `src/agent/browser.ts` + `src/agent/agent.ts`.
+- **Auth & multi-tenancy.** JWT (HS256 access + refresh) auth, bcrypt password hashing, and a Prisma/PostgreSQL schema (`User`, `Project`, `ProjectMember`, `Run`, `Bug`, `BugComment`, `TestCase`). Every query is tenant-isolated — users only see projects they own or are shared on, and routes return 404 (not 403) to avoid leaking existence.
+- **REST API.** `/api/auth/*` (signup/login/refresh/me), `/api/projects/*` (CRUD + member sharing), `/api/bugs/*` (status, assignment, comments), `/api/projects/:id/{metrics,trends,activity}`.
+- **Bug workflow.** Status tracking (OPEN→ASSIGNED→IN_REVIEW→FIXED→CLOSED/WONTFIX), assignment to project members, and threaded comments.
+- **Executive dashboard.** Zero-dependency SVG charts (no chart library): severity donut, stacked bug-trends bar chart, stat cards, team leaderboard. See `frontend/src/pages/DashboardMetrics.tsx`.
+- **Reporting & integrations.** CSV export (RFC 4180 + formula-injection-safe), print-ready HTML report, Slack run summaries, and Jira issue creation. See `src/services/`.
+- **Fix agent in the cloud.** Beyond a local `projectRoot`, the fix agent accepts a **base64 ZIP upload** of the source (Zip-Slip + zip-bomb hardened), patches it in a temp dir, and returns the patched ZIP — so it works without the user's code on the server.
+- **Security hardening.** In-memory (Redis-swappable) rate limiting on auth endpoints, 1 MB request-body cap, CSV formula-injection defense, Zip-Slip protection.
+- **CI/CD.** GitHub Actions: `ci.yml` (typecheck + 24 unit tests + frontend build on every push/PR) and `deploy.yml` (frontend → Cloudflare Pages via wrangler).
+
+Run the SaaS backend locally:
+
+```bash
+# 1. Start Postgres (Docker)
+docker run --name qa-pg -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=ai_qa_engineer -p 5432:5432 -d postgres
+# 2. Configure .env (DATABASE_URL, JWT_SECRET) then migrate
+npm run db:migrate
+# 3. Start the API
+npm run agent:serve
+```
+
+Tests: `npm test` (24 unit tests — routing, JWT, bcrypt, CSV, rate limiting, ZIP safety).
+
+---
+
 ## Highlights
 
 - **Deep agent loop, not a fixed pipeline.** Every iteration: observe → update internal model → decide next action → execute via tool → analyze result. The agent adapts to what it finds; it doesn't follow a hard-coded crawl-then-test script.
