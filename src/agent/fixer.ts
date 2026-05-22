@@ -1,6 +1,10 @@
-import { readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
+import { spawn, exec } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+
+const execAsync = promisify(exec);
 import {
   createProvider,
   type ProviderConfig,
@@ -33,6 +37,18 @@ export interface FixRequest {
   projectRoot: string;
   provider: ProviderConfig;
   targetUrl: string;
+  /**
+   * Command to restart the target app after patching files. Run from
+   * `projectRoot`. If omitted, the agent attempts to auto-detect via
+   * `package.json` `scripts.start` field. Examples: `"npm start"`,
+   * `"node server.js"`, `"npm run dev"`.
+   */
+  restartCommand?: string;
+  /**
+   * Whether to skip restart (e.g. for apps with hot-reload like nodemon
+   * or webpack-dev-server). Default false.
+   */
+  skipRestart?: boolean;
   onEvent?: (event: FixEvent) => void;
 }
 
@@ -41,6 +57,7 @@ export interface FixEvent {
     | "fix_start"
     | "fix_analyzing"
     | "fix_patching"
+    | "fix_restarting"
     | "fix_verifying"
     | "fix_done"
     | "fix_error";
@@ -76,6 +93,11 @@ function safePath(projectRoot: string, relativePath: string): string {
 // File system tools (scoped to projectRoot)
 // ──────────────────────────────────────────────────────────────────────────────
 
+const SKIP_DIRS = new Set([
+  "node_modules", ".git", "dist", ".next", "coverage",
+  "build", ".cache", ".turbo", "__pycache__",
+]);
+
 export async function readSourceFile(
   projectRoot: string,
   relativePath: string
@@ -90,6 +112,9 @@ export async function writeSourceFile(
   content: string
 ): Promise<void> {
   const abs = safePath(projectRoot, relativePath);
+  // Ensure parent directory exists
+  const dir = path.dirname(abs);
+  await mkdir(dir, { recursive: true });
   await writeFile(abs, content, "utf-8");
 }
 
@@ -99,7 +124,9 @@ export async function listDirectory(
 ): Promise<string[]> {
   const abs = safePath(projectRoot, relativePath);
   const entries = await readdir(abs, { withFileTypes: true });
-  return entries.map((e) => (e.isDirectory() ? e.name + "/" : e.name));
+  return entries
+    .filter((e) => !SKIP_DIRS.has(e.name))
+    .map((e) => (e.isDirectory() ? e.name + "/" : e.name));
 }
 
 export async function searchFiles(
@@ -115,28 +142,79 @@ export async function searchFiles(
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
-      return; // skip unreadable directories
+      return;
     }
-
     for (const entry of entries) {
+      if (SKIP_DIRS.has(entry.name)) continue;
       const fullPath = path.join(dir, entry.name);
-
-      // Skip common non-source directories
-      if (
-        entry.isDirectory() &&
-        (entry.name === "node_modules" ||
-          entry.name === ".git" ||
-          entry.name === "dist" ||
-          entry.name === ".next" ||
-          entry.name === "coverage")
-      ) {
-        continue;
-      }
-
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.name.toLowerCase().includes(lowerPattern)) {
         results.push(path.relative(root, fullPath));
+      }
+    }
+  }
+
+  await walk(root);
+  return results;
+}
+
+/**
+ * Search file CONTENTS for a string pattern. Returns matching files with
+ * line numbers and the matching line text. This is the critical tool the
+ * LLM needs to locate where route handlers, validation logic, etc. live.
+ */
+export async function grepFiles(
+  projectRoot: string,
+  pattern: string,
+  maxResults = 30
+): Promise<Array<{ file: string; line: number; text: string }>> {
+  const root = path.resolve(projectRoot);
+  const results: Array<{ file: string; line: number; text: string }> = [];
+  const lowerPattern = pattern.toLowerCase();
+
+  // Only search text-like source files
+  const textExts = new Set([
+    ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
+    ".html", ".css", ".json", ".yml", ".yaml",
+    ".py", ".rb", ".go", ".rs", ".java",
+    ".md", ".txt", ".env", ".toml", ".cfg",
+    ".vue", ".svelte", ".php", ".sql",
+  ]);
+
+  async function walk(dir: string): Promise<void> {
+    if (results.length >= maxResults) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (results.length >= maxResults) return;
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!textExts.has(ext)) continue;
+        try {
+          const content = await readFile(fullPath, "utf-8");
+          const lines = content.split("\n");
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].toLowerCase().includes(lowerPattern)) {
+              results.push({
+                file: path.relative(root, fullPath),
+                line: i + 1,
+                text: lines[i].trim().slice(0, 200),
+              });
+              if (results.length >= maxResults) return;
+            }
+          }
+        } catch {
+          // skip unreadable files
+        }
       }
     }
   }
@@ -159,7 +237,7 @@ const FIX_TOOLS: ToolDef[] = [
       properties: {
         path: {
           type: "string",
-          description: "Relative path from project root",
+          description: "Relative path from project root (e.g. 'server.js', 'src/routes/admin.js')",
         },
       },
       required: ["path"],
@@ -168,7 +246,7 @@ const FIX_TOOLS: ToolDef[] = [
   {
     name: "write_file",
     description:
-      "Write content to a source file in the project. Creates or overwrites the file.",
+      "Write content to a source file in the project. Creates or overwrites the file. You MUST include the ENTIRE file content, not just the changed part.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -178,7 +256,7 @@ const FIX_TOOLS: ToolDef[] = [
         },
         content: {
           type: "string",
-          description: "The full file content to write",
+          description: "The FULL file content to write (entire file, not a patch)",
         },
       },
       required: ["path", "content"],
@@ -187,7 +265,7 @@ const FIX_TOOLS: ToolDef[] = [
   {
     name: "list_dir",
     description:
-      "List files and subdirectories in a project directory. Directories have a trailing slash.",
+      "List files and subdirectories in a project directory. Directories have a trailing slash. Skips node_modules, .git, dist, etc.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -203,15 +281,30 @@ const FIX_TOOLS: ToolDef[] = [
   {
     name: "search_files",
     description:
-      "Search for files whose names contain the given pattern string (case-insensitive). " +
-      "Skips node_modules, .git, dist, .next, and coverage directories.",
+      "Search for files whose NAMES contain the given pattern (case-insensitive substring). Good for finding files like 'server', 'login', 'admin'.",
     input_schema: {
       type: "object" as const,
       properties: {
         pattern: {
           type: "string",
           description:
-            "Substring to match against filenames (e.g. 'login', '.tsx', 'route')",
+            "Substring to match against filenames (e.g. 'login', 'server', 'route')",
+        },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
+    name: "grep",
+    description:
+      "Search file CONTENTS for a string pattern. Returns matching files with line numbers. This is the best way to find where specific routes, functions, variables, or error messages are defined.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pattern: {
+          type: "string",
+          description:
+            "Text to search for in file contents (e.g. '/api/admin', 'password', 'app.post', 'required')",
         },
       },
       required: ["pattern"],
@@ -223,7 +316,7 @@ const FIX_TOOLS: ToolDef[] = [
 // FixAgent
 // ──────────────────────────────────────────────────────────────────────────────
 
-const MAX_FIX_STEPS = 15;
+const MAX_FIX_STEPS = 20;
 
 export class FixAgent {
   private readonly provider: LLMProvider;
@@ -236,8 +329,6 @@ export class FixAgent {
     this.onEvent = request.onEvent;
   }
 
-  // ── Event helpers ───────────────────────────────────────────────────────
-
   private emit(
     type: FixEvent["type"],
     message: string,
@@ -249,10 +340,10 @@ export class FixAgent {
       message,
       data,
     };
+    // eslint-disable-next-line no-console
+    console.log(`[FixAgent] ${type}: ${message}`);
     this.onEvent?.(event);
   }
-
-  // ── Public entry point ──────────────────────────────────────────────────
 
   async run(): Promise<FixResult> {
     const { bug } = this.request;
@@ -280,17 +371,35 @@ export class FixAgent {
     }
 
     if (patchedFiles.length === 0) {
-      this.emit("fix_error", "LLM could not determine a fix");
+      this.emit("fix_error", "LLM did not write any files — no fix applied");
       return {
         ok: false,
         bugId: bug.id,
         patchedFiles: [],
         verified: false,
-        message: "LLM was unable to identify files to patch",
+        message: "LLM was unable to identify or apply a fix",
       };
     }
 
-    // 2. Verify
+    // 2. Restart the target app so the patches take effect
+    if (!this.request.skipRestart) {
+      try {
+        await this.restartTargetApp();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.emit(
+          "fix_restarting",
+          `Restart skipped or failed: ${message}. Fix may still be on disk.`
+        );
+      }
+    } else {
+      this.emit(
+        "fix_restarting",
+        "Skipping restart (skipRestart=true). Hot-reload should pick up changes."
+      );
+    }
+
+    // 3. Verify
     this.emit(
       "fix_verifying",
       `Verifying fix against ${this.request.targetUrl}`
@@ -307,8 +416,8 @@ export class FixAgent {
     }
 
     const resultMessage = verified
-      ? `Fix applied and verified. Patched ${patchedFiles.length} file(s).`
-      : `Fix applied (${patchedFiles.length} file(s)) but verification ${verifyMessage ? "noted: " + verifyMessage : "could not confirm the fix"}`;
+      ? `Fix applied and verified. Patched ${patchedFiles.length} file(s): ${patchedFiles.map((f) => f.path).join(", ")}`
+      : `Fix applied (${patchedFiles.length} file(s): ${patchedFiles.map((f) => f.path).join(", ")}) but verification ${verifyMessage ? "noted: " + verifyMessage : "could not confirm the fix"}`;
 
     this.emit("fix_done", resultMessage, { patchedFiles, verified });
 
@@ -337,38 +446,57 @@ export class FixAgent {
           {
             type: "text",
             text:
-              "Analyze this bug and fix it. Start by exploring the project structure " +
-              "(list_dir, search_files) to locate the relevant source files, then read " +
-              "them, identify the root cause, and write the corrected file(s).\n\n" +
-              "When you have applied all necessary changes, respond with a final text " +
-              'message starting with "DONE:" followed by a summary of what you changed.',
+              "Fix this bug. Follow these steps:\n\n" +
+              "1. Run `grep` to search for the route/endpoint mentioned in the bug URL (e.g. grep for '/api/admin' or '/login' or 'password')\n" +
+              "2. Run `list_dir` on '.' to see the project structure\n" +
+              "3. Read the files you found with `read_file`\n" +
+              "4. Identify the root cause\n" +
+              "5. Write the fixed file with `write_file` (include the ENTIRE file content)\n\n" +
+              "When done, respond with text starting with 'DONE:' and summarize what you changed.",
           },
         ],
       },
     ];
 
     const patchedFiles: Array<{ path: string; diff: string }> = [];
-    // Track original file contents so we can produce diffs
     const originalContents = new Map<string, string>();
 
     for (let step = 0; step < MAX_FIX_STEPS; step++) {
+      // eslint-disable-next-line no-console
+      console.log(`[FixAgent] Step ${step + 1}/${MAX_FIX_STEPS}`);
+
       const response = await this.provider.chat({
         system: systemPrompt,
         tools: FIX_TOOLS,
         messages,
-        maxTokens: 4096,
+        maxTokens: 8192,
       });
 
-      // Append assistant response
       if (response.content.length > 0) {
         messages.push({ role: "assistant", content: response.content });
       }
 
-      // Check for end_turn — the LLM is done talking
+      // Log any text the LLM says
+      for (const block of response.content) {
+        if (block.type === "text") {
+          // eslint-disable-next-line no-console
+          console.log(`[FixAgent] LLM says: ${(block as { text: string }).text.slice(0, 200)}`);
+
+          // Check if the LLM signaled it's done
+          if ((block as { text: string }).text.startsWith("DONE:")) {
+            // eslint-disable-next-line no-console
+            console.log("[FixAgent] LLM signaled DONE");
+            return patchedFiles;
+          }
+        }
+      }
+
       if (
         response.stopReason === "end_turn" ||
         response.stopReason === "max_tokens"
       ) {
+        // eslint-disable-next-line no-console
+        console.log(`[FixAgent] Stop reason: ${response.stopReason}`);
         break;
       }
 
@@ -391,6 +519,9 @@ export class FixAgent {
         const input = (tu.input ?? {}) as Record<string, unknown>;
         let result: string;
 
+        // eslint-disable-next-line no-console
+        console.log(`[FixAgent] Tool: ${tu.name}(${JSON.stringify(input).slice(0, 100)})`);
+
         try {
           switch (tu.name) {
             case "read_file": {
@@ -399,11 +530,11 @@ export class FixAgent {
                 this.projectRoot,
                 filePath
               );
-              // Cache original for diff
               if (!originalContents.has(filePath)) {
                 originalContents.set(filePath, content);
               }
               result = content;
+              this.emit("fix_analyzing", `Read ${filePath} (${content.length} chars)`);
               break;
             }
 
@@ -411,7 +542,6 @@ export class FixAgent {
               const filePath = input.path as string;
               const content = input.content as string;
 
-              // Read original if not cached yet
               if (!originalContents.has(filePath)) {
                 try {
                   const orig = await readSourceFile(
@@ -420,7 +550,7 @@ export class FixAgent {
                   );
                   originalContents.set(filePath, orig);
                 } catch {
-                  originalContents.set(filePath, ""); // new file
+                  originalContents.set(filePath, "");
                 }
               }
 
@@ -431,14 +561,17 @@ export class FixAgent {
               const diff = createSimpleDiff(original, content);
               patchedFiles.push({ path: filePath, diff });
 
-              result = `File written: ${filePath}`;
+              // eslint-disable-next-line no-console
+              console.log(`[FixAgent] WROTE ${filePath} (${content.length} chars, diff: ${diff.split("\n").filter((l) => l.startsWith("+") || l.startsWith("-")).length} changed lines)`);
+
+              result = `File written successfully: ${filePath} (${content.length} chars)`;
               break;
             }
 
             case "list_dir": {
               const dirPath = (input.path as string) ?? ".";
               const entries = await listDirectory(this.projectRoot, dirPath);
-              result = entries.join("\n");
+              result = entries.join("\n") || "(empty directory)";
               break;
             }
 
@@ -452,12 +585,27 @@ export class FixAgent {
               break;
             }
 
+            case "grep": {
+              const pattern = input.pattern as string;
+              const matches = await grepFiles(this.projectRoot, pattern);
+              if (matches.length === 0) {
+                result = `No matches found for "${pattern}"`;
+              } else {
+                result = matches
+                  .map((m) => `${m.file}:${m.line}: ${m.text}`)
+                  .join("\n");
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${tu.name}`;
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           result = `Error: ${message}`;
+          // eslint-disable-next-line no-console
+          console.log(`[FixAgent] Tool error: ${message}`);
         }
 
         toolResults.push({
@@ -471,6 +619,129 @@ export class FixAgent {
     }
 
     return patchedFiles;
+  }
+
+  // ── Auto-restart target app so patches take effect ──────────────────────
+
+  /**
+   * Restart the target app:
+   *   1. Find the port from `targetUrl`.
+   *   2. Kill any process listening on that port (the old test app instance).
+   *   3. Run the restart command (configured or auto-detected) from
+   *      `projectRoot` as a detached background process.
+   *   4. Poll the port until the new instance is listening (up to 15s).
+   *
+   * The restart command runs detached and unref'd so it survives the
+   * fix request's lifetime. Stdout/stderr are inherited so the user can
+   * see startup logs in the backend terminal.
+   */
+  private async restartTargetApp(): Promise<void> {
+    const targetUrl = this.request.targetUrl;
+    const port = portFromUrl(targetUrl);
+    if (!port) {
+      this.emit(
+        "fix_restarting",
+        `Cannot determine port from targetUrl ${targetUrl}; skipping restart`
+      );
+      return;
+    }
+
+    // Resolve the restart command.
+    const command = this.request.restartCommand?.trim() || (await this.detectRestartCommand());
+    if (!command) {
+      this.emit(
+        "fix_restarting",
+        `No restart command configured and could not auto-detect from package.json. Skipping restart — restart your app manually.`
+      );
+      return;
+    }
+
+    this.emit("fix_restarting", `Killing process on port ${port} and running: ${command}`);
+
+    // 1. Kill the old process listening on the target port. Best-effort —
+    //    if nothing is listening, lsof returns no PIDs and the kill is a no-op.
+    try {
+      const { stdout } = await execAsync(
+        `lsof -iTCP:${port} -sTCP:LISTEN -t || true`,
+        { timeout: 5000 }
+      );
+      const pids = stdout.trim().split(/\s+/).filter(Boolean);
+      for (const pid of pids) {
+        try {
+          process.kill(parseInt(pid, 10), "SIGKILL");
+          // eslint-disable-next-line no-console
+          console.log(`[FixAgent] Killed PID ${pid} on port ${port}`);
+        } catch {
+          // process may have already exited
+        }
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.log(`[FixAgent] Port-kill step skipped: ${err instanceof Error ? err.message : err}`);
+    }
+
+    // Brief pause so the OS releases the port before we relaunch.
+    await new Promise((r) => setTimeout(r, 500));
+
+    // 2. Spawn the restart command as a detached background process.
+    //    `shell: true` lets the user write `npm start` rather than splitting argv.
+    const child = spawn(command, {
+      cwd: this.projectRoot,
+      shell: true,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+
+    // 3. Poll the URL until it responds (up to 15 seconds).
+    const deadline = Date.now() + 15_000;
+    let lastError = "";
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const res = await fetch(targetUrl, {
+          // Don't follow redirects — we just want to know the port answers.
+          redirect: "manual",
+        });
+        // Any HTTP response (even 4xx/5xx) means the server is up.
+        if (res.status > 0) {
+          this.emit(
+            "fix_restarting",
+            `Target app responded with HTTP ${res.status}. Waiting briefly for full readiness…`
+          );
+          // Small extra settle so async startup work completes.
+          await new Promise((r) => setTimeout(r, 1000));
+          return;
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    throw new Error(
+      `Target app did not respond on ${targetUrl} within 15s after restart. Last error: ${lastError}`
+    );
+  }
+
+  /**
+   * Auto-detect a restart command by reading `package.json` in the project
+   * root. Returns `npm start` if a `start` script exists, otherwise null.
+   */
+  private async detectRestartCommand(): Promise<string | null> {
+    try {
+      const pkgPath = path.join(this.projectRoot, "package.json");
+      const content = await readFile(pkgPath, "utf-8");
+      const pkg = JSON.parse(content) as { scripts?: Record<string, string> };
+      if (pkg.scripts?.start) {
+        return "npm start";
+      }
+      if (pkg.scripts?.dev) {
+        return "npm run dev";
+      }
+    } catch {
+      // package.json missing or unparseable
+    }
+    return null;
   }
 
   // ── Playwright verification ─────────────────────────────────────────────
@@ -503,29 +774,25 @@ export class FixAgent {
         }
       });
 
-      // Navigate to the bug's URL (prefer the original bug URL, fall back
-      // to targetUrl if the bug URL is relative or unresolvable).
       const navUrl = bug.url.startsWith("http") ? bug.url : targetUrl;
       const response = await page.goto(navUrl, {
         waitUntil: "networkidle",
         timeout: 30_000,
       });
 
-      const status = response?.status() ?? 0;
+      const httpStatus = response?.status() ?? 0;
       const pageTitle = await page.title();
 
-      // Attempt basic repro: if the bug had steps involving navigation,
-      // we already loaded the page. Check for obvious failures.
-      const hasPageError = status >= 500;
-      const hasConsoleErrors = consoleErrors.length > 0;
+      const hasPageError = httpStatus >= 500;
       const hasNetworkErrors = networkErrors.length > 0;
+      const hasConsoleErrors = consoleErrors.length > 0;
 
       await context.close();
 
       if (hasPageError) {
         return {
           ok: false,
-          message: `Page returned HTTP ${status} at ${navUrl}`,
+          message: `Page returned HTTP ${httpStatus} at ${navUrl}`,
         };
       }
 
@@ -545,7 +812,7 @@ export class FixAgent {
 
       return {
         ok: true,
-        message: `Page loaded successfully (HTTP ${status}, title: "${pageTitle}")`,
+        message: `Page loaded successfully (HTTP ${httpStatus}, title: "${pageTitle}")`,
       };
     } finally {
       if (browser) {
@@ -558,6 +825,22 @@ export class FixAgent {
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the port from a URL. Falls back to default ports (80 for http, 443
+ * for https) when the URL doesn't carry an explicit port.
+ */
+function portFromUrl(url: string): number | null {
+  try {
+    const u = new URL(url);
+    if (u.port) return parseInt(u.port, 10);
+    if (u.protocol === "http:") return 80;
+    if (u.protocol === "https:") return 443;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 function buildFixSystemPrompt(bug: FixRequest["bug"]): string {
   const evidenceBlock = bug.evidence
@@ -576,7 +859,16 @@ function buildFixSystemPrompt(bug: FixRequest["bug"]): string {
         .join("\n")
     : "";
 
-  return `You are a senior software engineer tasked with fixing a bug in a web application.
+  // Extract route path from the bug URL to help the LLM focus
+  let routeHint = "";
+  try {
+    const u = new URL(bug.url);
+    routeHint = `\n\nROUTE HINT: The bug is at URL path "${u.pathname}". Grep for this path or related route handler.`;
+  } catch {
+    // invalid URL, skip hint
+  }
+
+  return `You are a senior software engineer fixing a bug in a web application.
 
 BUG REPORT:
   ID: ${bug.id}
@@ -588,36 +880,32 @@ BUG REPORT:
   Actual: ${bug.actual}
   Repro steps:
 ${bug.reproSteps.map((s, i) => `    ${i + 1}. ${s}`).join("\n")}
-${evidenceBlock}
+${evidenceBlock}${routeHint}
 
 AVAILABLE TOOLS:
-  - read_file: Read a source file from the project (pass a relative path).
-  - write_file: Write content to a source file (pass relative path + full content).
-  - list_dir: List directory contents (pass relative path; use "." for root).
-  - search_files: Find files by name pattern (case-insensitive substring match).
+  - read_file: Read a source file (relative path from project root)
+  - write_file: Write ENTIRE file content to a source file
+  - list_dir: List directory contents ('.' for project root)
+  - search_files: Find files by filename substring
+  - grep: Search file CONTENTS for a string — this is the most important tool for finding where code lives
 
-INSTRUCTIONS:
-  1. Start by exploring the project structure using list_dir and search_files.
-  2. Read the source files that are likely related to the bug.
-  3. Identify the root cause of the bug.
-  4. Apply a MINIMAL, focused fix — change only what is necessary.
-  5. Write the corrected file(s) using write_file with the COMPLETE file content.
-  6. When done, respond with a text message starting with "DONE:" summarizing the changes.
+STRATEGY:
+  1. FIRST: Use \`grep\` to find where the relevant route/endpoint/function is defined.
+     Example: grep for "/api/admin" or "login" or "password" or "products"
+  2. THEN: Use \`list_dir\` on '.' to understand the project structure.
+  3. THEN: Use \`read_file\` to read the files you found.
+  4. THEN: Identify the root cause and apply a MINIMAL fix.
+  5. FINALLY: Use \`write_file\` with the COMPLETE corrected file content.
 
 RULES:
+  - Use grep FIRST to find the right files — don't guess filenames.
+  - When you write_file, include the ENTIRE file, not just changed lines.
   - Do NOT introduce new dependencies.
   - Do NOT refactor unrelated code.
-  - Keep changes minimal — fix the bug and nothing else.
-  - If you read a file before writing it, your write_file content must include
-    the ENTIRE file, not just the changed section.
-  - If you cannot determine a fix with confidence, say so rather than guessing.`;
+  - Keep changes minimal — fix the specific bug only.
+  - When done, respond with text starting with "DONE:" summarizing changes.`;
 }
 
-/**
- * Produce a simple unified-style diff between two strings.
- * Not a full unified diff algorithm — just marks changed, added, and
- * removed lines with +/- prefixes for human readability.
- */
 function createSimpleDiff(original: string, updated: string): string {
   const oldLines = original.split("\n");
   const newLines = updated.split("\n");
@@ -632,16 +920,12 @@ function createSimpleDiff(original: string, updated: string): string {
     if (oldLine === newLine) {
       lines.push(` ${oldLine}`);
     } else {
-      if (oldLine !== undefined) {
-        lines.push(`-${oldLine}`);
-      }
-      if (newLine !== undefined) {
-        lines.push(`+${newLine}`);
-      }
+      if (oldLine !== undefined) lines.push(`-${oldLine}`);
+      if (newLine !== undefined) lines.push(`+${newLine}`);
     }
   }
 
-  // Collapse context: only show lines near changes (3-line context window)
+  // Collapse context: only show lines near changes
   const diffLines: string[] = [];
   const isChange = (line: string) =>
     line.startsWith("+") || line.startsWith("-");
@@ -658,7 +942,10 @@ function createSimpleDiff(original: string, updated: string): string {
 
     if (nearChange) {
       diffLines.push(lines[i]);
-    } else if (diffLines.length > 0 && diffLines[diffLines.length - 1] !== "...") {
+    } else if (
+      diffLines.length > 0 &&
+      diffLines[diffLines.length - 1] !== "..."
+    ) {
       diffLines.push("...");
     }
   }

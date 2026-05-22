@@ -30,7 +30,7 @@
       <form id="signup" method="post" action="/api/signup">
         <div class="form-group">
           <label for="name">Full name</label>
-          <input type="text" id="name" name="name" placeholder="Jane Doe" />
+          <input type="text" id="name" name="name" placeholder="Jane Doe" required />
         </div>
         <div class="form-group">
           <label for="email">Email</label>
@@ -60,6 +60,11 @@
       const name = document.getElementById("name").value.trim();
       const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
+
+      if (!name) {
+        msg.innerHTML = '<div class="error">Name is required</div>';
+        return;
+      }
 
       if (!email || !password) {
         msg.innerHTML = '<div class="error">Email and password required</div>';

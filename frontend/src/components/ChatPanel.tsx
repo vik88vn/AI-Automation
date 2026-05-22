@@ -99,7 +99,11 @@ export function ChatPanel() {
       try {
         const res = await fetch(apiUrl("/api/fix"), {
           method: "POST",
+<<<<<<< HEAD
           headers: { "content-type": "application/json", ...accessHeaders() },
+=======
+          headers: { "content-type": "application/json" },
+>>>>>>> 4f7ae30 (Add AgentFlow visualization component to home page)
           signal: abortRef.current.signal,
           body: JSON.stringify({
             bug: {
@@ -205,7 +209,11 @@ export function ChatPanel() {
     try {
       const res = await fetch(apiUrl("/api/chat"), {
         method: "POST",
+<<<<<<< HEAD
         headers: { "content-type": "application/json", ...accessHeaders() },
+=======
+        headers: { "content-type": "application/json" },
+>>>>>>> 4f7ae30 (Add AgentFlow visualization component to home page)
         signal: abortRef.current.signal,
         body: JSON.stringify({
           message: text.trim(),

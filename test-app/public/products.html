@@ -82,20 +82,18 @@
       }
     }
 
-    // BUG #3 (MEDIUM): Add-to-cart button is briefly clickable while disabled
-    // (race condition). The disabled attribute is applied via JS *after* the
-    // button is mounted, leaving a ~150ms window where a fast click submits
-    // an out-of-stock item.
+    // BUG_006 fix: previously this function simulated a race condition by
+    // re-enabling out-of-stock buttons for ~150ms after mount, allowing
+    // clicks on "Out of stock" products to reach the cart layer. We now
+    // leave the server-rendered `disabled` attribute intact and additionally
+    // guard the click handler so disabled buttons cannot submit.
     function attachAddToCart() {
       document.querySelectorAll(".add-to-cart").forEach((btn) => {
-        // Simulated race: re-enable then disable shortly after
-        if (btn.disabled) {
-          btn.disabled = false;
-          setTimeout(() => {
-            btn.disabled = true;
-          }, 150);
-        }
         btn.addEventListener("click", async (e) => {
+          if (btn.disabled) {
+            e.preventDefault();
+            return;
+          }
           const id = btn.getAttribute("data-id");
           try {
             const res = await fetch("/api/cart/add", {
