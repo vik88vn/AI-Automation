@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { AgentFlow } from "@/components/AgentFlow";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useStore } from "@/store/useStore";
 import { RunStatuses } from "@/types";
@@ -70,7 +71,7 @@ export function Home() {
   };
 
   return (
-    <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-16 overflow-hidden flex-1">
+    <div className="relative min-h-full flex flex-col items-center px-6 overflow-y-auto overflow-x-hidden flex-1">
       {/* Ambient backdrop — subtle gradient orbs that don't compete with content */}
       <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
         <div className="absolute top-[10%] left-1/2 -translate-x-1/2 h-[420px] w-[720px] rounded-full bg-blue-500/10 blur-3xl" />
@@ -93,6 +94,9 @@ export function Home() {
         <SettingsIcon className="size-4" />
       </Button>
 
+      {/* Hero — fills the viewport and stays centered; the flow diagram
+          below scrolls into view. */}
+      <div className="flex w-full flex-col items-center justify-center min-h-[88vh] py-16">
       {/* Brand mark */}
       <div className="flex items-center gap-2 mb-10 animate-fade-in-up">
         <div className="size-8 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-500 grid place-items-center shadow-lg shadow-blue-500/20">
@@ -178,7 +182,11 @@ export function Home() {
         <FeaturePill title="Explores" body="Walks the site like a tester — navigate, click, type, extract." />
         <FeaturePill title="Generates" body="Writes test cases as it discovers features and forms." />
         <FeaturePill title="Reports" body="Real bugs separated from broken tests, with reproduction steps." />
+        </div>
       </div>
+
+      {/* Flowchart of the agent's run lifecycle. */}
+      <AgentFlow />
 
       <SettingsDialog
         open={settingsOpen}

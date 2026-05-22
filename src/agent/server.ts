@@ -450,12 +450,12 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
     "access-control-allow-origin": "*",
   });
 
-  const fixRequest: FixRequest = {
+  const fixRequest = {
     bug: parsed.bug,
     projectRoot,
     provider: providerConfig,
     targetUrl,
-    restartCommand: parsed.restartCommand,
+    ...(parsed.restartCommand && { restartCommand: parsed.restartCommand }),
     skipRestart,
     onEvent: (event: FixEvent) => {
       try {
@@ -464,7 +464,7 @@ async function handleFix(req: IncomingMessage, res: ServerResponse): Promise<voi
         // client disconnected
       }
     },
-  };
+  } as FixRequest;
 
   try {
     const agent = new FixAgent(fixRequest);
