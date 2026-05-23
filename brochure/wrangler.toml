@@ -1,0 +1,23 @@
+# Cloudflare Pages configuration for brochure site
+
+name = "ai-qa-engineer-brochure"
+type = "javascript"
+
+[build]
+command = "npm run build"
+cwd = "./brochure"
+watch_paths = ["brochure/src/**/*.tsx", "brochure/src/**/*.ts", "brochure/src/**/*.css"]
+
+[build.upload]
+format = "service-worker"
+
+[[routes]]
+pattern = "brochure.ai-automation-qa-engineer.pages.dev/*"
+zone_name = "your-zone.com"
+
+# Environment variables (dev only; prod goes through Cloudflare dashboard)
+[env.development]
+vars = { ENVIRONMENT = "development" }
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
