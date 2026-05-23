@@ -1,6 +1,6 @@
-# AI QA Engineer Brochure Site – Overview
+# AI QA Tester Brochure Site – Overview
 
-A modern, professional marketing landing page that showcases the AI QA Engineer product to potential customers.
+A modern, professional marketing landing page that showcases the AI QA Tester product to potential customers.
 
 ## 🎯 Purpose
 

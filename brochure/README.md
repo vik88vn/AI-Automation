@@ -1,6 +1,6 @@
-# AI QA Engineer – Marketing Brochure
+# AI QA Tester – Marketing Brochure
 
-A modern, responsive landing page showcasing the AI QA Engineer product. Built with React, TypeScript, and Vite.
+A modern, responsive landing page showcasing the AI QA Tester product. Built with React, TypeScript, and Vite.
 
 ## Features
 

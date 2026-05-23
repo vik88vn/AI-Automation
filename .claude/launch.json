@@ -6,6 +6,12 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "cd /Users/rohailsiddiqi/Documents/ai-qa-engineer/frontend && npm run dev"],
       "port": 5173
+    },
+    {
+      "name": "brochure",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "export PATH=/opt/homebrew/Cellar/node@22/22.22.3/bin:$PATH && cd /Users/rohailsiddiqi/Documents/ai-qa-engineer/brochure && npm run dev -- --port 5174 --strictPort"],
+      "port": 5174
     }
   ]
 }

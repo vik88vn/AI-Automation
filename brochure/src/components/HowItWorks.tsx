@@ -57,7 +57,7 @@ export function HowItWorks() {
         <div className="glass p-8 rounded-lg mt-12">
           <h3 className="heading-sm mb-6 flex items-center gap-2">
             <CheckCircle2 className="text-green-500" size={24} />
-            Why Choose AI QA Engineer?
+            Why Choose AI QA Tester?
           </h3>
           <div className="grid grid-cols-2 gap-6">
             <div className="flex gap-3">

@@ -216,3 +216,37 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── React Flow dark-theme overrides ─────────────────────────────────────── */
+.react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.react-flow__controls-button {
+  background: #18181b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+}
+
+.react-flow__controls-button:hover {
+  background: #27272a;
+}
+
+.react-flow__controls-button svg {
+  fill: #a1a1aa;
+}
+
+.react-flow__attribution {
+  background: rgba(24, 24, 27, 0.7);
+  border-radius: 6px 0 0 0;
+}
+
+.react-flow__attribution a {
+  color: #71717a;
+}
+
+.react-flow__handle {
+  border: none;
+}

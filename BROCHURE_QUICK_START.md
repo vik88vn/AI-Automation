@@ -1,6 +1,6 @@
 # Brochure Quick Start Guide
 
-Your AI QA Engineer marketing landing page is ready to deploy! Here's what was created and how to get it live.
+Your AI QA Tester marketing landing page is ready to deploy! Here's what was created and how to get it live.
 
 ## 📦 What Was Created
 
@@ -51,12 +51,12 @@ Additional docs created:
 
 Cloudflare will build and deploy. Your site is now live at:
 ```
-https://ai-qa-engineer-brochure.pages.dev
+https://ai-qa-tester-brochure.pages.dev
 ```
 
 ### Step 2: Connect Custom Domain (Optional)
 
-1. **Pages → ai-qa-engineer-brochure → Settings → Custom domain**
+1. **Pages → ai-qa-tester-brochure → Settings → Custom domain**
 2. **Add domain** (e.g., `brochure.example.com`)
 3. **Update DNS** (Cloudflare will show you how)
 4. **Wait for SSL** (instant, automatic)

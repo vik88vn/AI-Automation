@@ -1,6 +1,7 @@
 import { Nav } from './components/Nav';
 import { Hero } from './components/Hero';
 import { Features } from './components/Features';
+import { AgentFlow } from './components/AgentFlow';
 import { HowItWorks } from './components/HowItWorks';
 import { Capabilities } from './components/Capabilities';
 import { Pricing } from './components/Pricing';
@@ -16,6 +17,7 @@ function App() {
         <section id="features">
           <Features />
         </section>
+        <AgentFlow />
         <section id="how">
           <HowItWorks />
         </section>

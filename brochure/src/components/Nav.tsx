@@ -8,14 +8,14 @@ export function Nav() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
             <Zap className="text-white" size={20} />
           </div>
-          <span className="font-bold text-lg">AI QA Engineer</span>
+          <span className="font-bold text-lg">AI QA Tester</span>
         </div>
 
         <div className="hidden md:flex items-center gap-8">
           <a href="#features" className="text-muted hover:text-white transition text-sm">Features</a>
+          <a href="#flow" className="text-muted hover:text-white transition text-sm">Pipeline</a>
           <a href="#how" className="text-muted hover:text-white transition text-sm">How It Works</a>
           <a href="#pricing" className="text-muted hover:text-white transition text-sm">Pricing</a>
-          <a href="#" className="text-muted hover:text-white transition text-sm">Docs</a>
         </div>
 
         <div className="flex gap-3">

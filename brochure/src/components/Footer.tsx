@@ -49,7 +49,7 @@ export function Footer() {
 
         <div className="border-t border-white/10 pt-8 flex items-center justify-between">
           <p className="text-muted text-sm">
-            © 2024 AI QA Engineer. All rights reserved.
+            © 2026 AI QA Tester. All rights reserved.
           </p>
           <p className="text-muted text-sm">
             Made with ❤️ by <a href="#" className="hover:text-white transition">the team</a>

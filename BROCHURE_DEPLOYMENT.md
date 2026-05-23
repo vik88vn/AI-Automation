@@ -1,6 +1,6 @@
 # Brochure Site Deployment Guide
 
-This guide covers deploying the AI QA Engineer marketing brochure to Cloudflare Pages.
+This guide covers deploying the AI QA Tester marketing brochure to Cloudflare Pages.
 
 ## Overview
 
@@ -53,14 +53,14 @@ Cloudflare auto-redeploys on `git push` to `main`.
 
 ```bash
 cd brochure
-npx wrangler pages project create ai-qa-engineer-brochure
+npx wrangler pages project create ai-qa-tester-brochure
 npx wrangler pages deploy dist \
-  --project-name=ai-qa-engineer-brochure
+  --project-name=ai-qa-tester-brochure
 ```
 
 ## Step 2: Connect a Custom Domain
 
-1. **Cloudflare Dashboard → Pages → ai-qa-engineer-brochure**
+1. **Cloudflare Dashboard → Pages → ai-qa-tester-brochure**
 2. **Settings → Custom domain**
 3. **Add custom domain** (e.g., `brochure.example.com`)
 4. **Verify domain ownership** (point nameservers or CNAME to Cloudflare)
@@ -234,7 +234,7 @@ Common issues:
 
 1. **Clear browser cache** (Cmd+Shift+R on Mac)
 2. **Check Cloudflare cache**: Dashboard → Caching → Purge Cache
-3. **Verify deployment**: Pages → ai-qa-engineer-brochure → Recent deployments
+3. **Verify deployment**: Pages → ai-qa-tester-brochure → Recent deployments
 
 ### Images/Assets Not Loading
 
@@ -248,7 +248,7 @@ Check `index.html` and `vite.config.ts`:
 
 **Option 1: CNAME (easiest)**
 ```
-brochure.example.com CNAME ai-qa-engineer-brochure.pages.dev
+brochure.example.com CNAME ai-qa-tester-brochure.pages.dev
 ```
 
 **Option 2: Cloudflare Nameservers**
