@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Bug as BugIcon, ExternalLink, Wrench, Loader2, CheckCircle2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { apiUrl } from "@/lib/apiBase";
+import { apiUrl, accessHeaders } from "@/lib/apiBase";
 import type { Severity } from "@/lib/mockData";
 
 const SEVERITY_VARIANT: Record<
@@ -64,7 +64,7 @@ export function BugList() {
     try {
       const res = await fetch(apiUrl("/api/fix"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...accessHeaders() },
         body: JSON.stringify({
           bug: {
             id: bug.id,

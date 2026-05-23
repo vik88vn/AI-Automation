@@ -46,6 +46,19 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Shared-secret gate for the mutating/listing endpoints. When ACCESS_SECRET is
+// set, every protected request must carry a matching `x-qa-token` header.
+// If ACCESS_SECRET is unset the gate is open (local dev / backwards compat).
+// Returns true if the request may proceed; otherwise sends 401 and returns false.
+function requireAccess(req: IncomingMessage, res: ServerResponse): boolean {
+  const secret = process.env.ACCESS_SECRET;
+  if (!secret) return true;
+  const provided = req.headers["x-qa-token"];
+  if (typeof provided === "string" && provided === secret) return true;
+  sendJson(res, 401, { error: "unauthorized" });
+  return false;
+}
+
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -516,10 +529,12 @@ export function startServer(port = 4310): void {
       return;
     }
     if (req.method === "POST" && route === "/api/runs") {
+      if (!requireAccess(req, res)) return;
       void startRun(req, res);
       return;
     }
     if (req.method === "GET" && route === "/api/runs") {
+      if (!requireAccess(req, res)) return;
       listRuns(res);
       return;
     }
@@ -535,14 +550,17 @@ export function startServer(port = 4310): void {
     }
     // Chat endpoint
     if (req.method === "POST" && route === "/api/chat") {
+      if (!requireAccess(req, res)) return;
       void handleChat(req, res);
       return;
     }
     // Fix endpoint
     if (req.method === "POST" && route === "/api/fix") {
+      if (!requireAccess(req, res)) return;
       void handleFix(req, res);
       return;
     }
+
     if (req.method === "GET" && route === "/health") {
       sendJson(res, 200, {
         ok: true,

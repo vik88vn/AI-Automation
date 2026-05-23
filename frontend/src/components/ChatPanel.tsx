@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, ChevronDown, ChevronUp, MessageSquare, Send, Square, Wrench } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { useSessionStore } from "@/store/useSessionStore";
-import { apiUrl } from "@/lib/apiBase";
+import { apiUrl, accessHeaders } from "@/lib/apiBase";
 
 const SETTINGS_KEY = "ai-qa-deep-agent.settings.v1";
 
@@ -99,7 +99,7 @@ export function ChatPanel() {
       try {
         const res = await fetch(apiUrl("/api/fix"), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...accessHeaders() },
           signal: abortRef.current.signal,
           body: JSON.stringify({
             bug: {
@@ -205,7 +205,7 @@ export function ChatPanel() {
     try {
       const res = await fetch(apiUrl("/api/chat"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...accessHeaders() },
         signal: abortRef.current.signal,
         body: JSON.stringify({
           message: text.trim(),

@@ -15,3 +15,13 @@ export const API_BASE = raw.replace(/\/$/, "");
 
 /** Prefix an `/api/...` path with the configured backend origin. */
 export const apiUrl = (path: string): string => `${API_BASE}${path}`;
+
+// Shared-secret token baked in at build time (VITE_ACCESS_TOKEN). The backend
+// requires it as `x-qa-token` on the run/chat/fix endpoints when ACCESS_SECRET
+// is configured. This is a secondary lock behind Cloudflare Access (which gates
+// who can load this bundle in the first place). Empty in local dev.
+const ACCESS_TOKEN = import.meta.env.VITE_ACCESS_TOKEN ?? "";
+
+/** Headers carrying the backend access token, if one is configured. */
+export const accessHeaders = (): Record<string, string> =>
+  ACCESS_TOKEN ? { "x-qa-token": ACCESS_TOKEN } : {};

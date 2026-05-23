@@ -6,7 +6,7 @@
 // through the /api proxy (dev) or VITE_API_TARGET (prod), same as lib/api.ts.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { apiUrl } from "./apiBase";
+import { apiUrl, accessHeaders } from "./apiBase";
 
 const AUTH_KEY = "ai-qa-deep-agent.auth.v1";
 
@@ -47,6 +47,7 @@ async function authedFetch<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "content-type": "application/json",
+      ...accessHeaders(),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
