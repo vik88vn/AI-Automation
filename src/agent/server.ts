@@ -578,8 +578,10 @@ export function startServer(port = 4310): void {
     })();
   });
 
-  server.listen(port, () => {
+  // Bind to 0.0.0.0 so the server is reachable inside containers / PaaS
+  // platforms (Railway, Render, Fly) — not just loopback.
+  server.listen(port, "0.0.0.0", () => {
     // eslint-disable-next-line no-console
-    console.log(`AI QA deep-agent dashboard: http://localhost:${port}`);
+    console.log(`AI QA deep-agent dashboard listening on :${port}`);
   });
 }

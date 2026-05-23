@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AgentEvent } from "./agentEvents";
+import { apiUrl } from "./apiBase";
 
 const SETTINGS_KEY = "ai-qa-deep-agent.settings.v1";
 
@@ -60,7 +61,7 @@ export async function startRun(opts: StartRunOptions): Promise<StartRunResponse>
     headless: opts.headless ?? true,
     providerSettings: opts.providerSettings ?? readSettings(),
   };
-  const res = await fetch("/api/runs", {
+  const res = await fetch(apiUrl("/api/runs"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -93,7 +94,7 @@ export interface SubscribeHandlers {
  * trigger UI cleanup.
  */
 export function subscribeToRun(id: string, handlers: SubscribeHandlers): () => void {
-  const es = new EventSource(`/api/runs/${id}/stream`);
+  const es = new EventSource(apiUrl(`/api/runs/${id}/stream`));
 
   es.onmessage = (msg) => {
     try {
@@ -125,7 +126,7 @@ export function subscribeToRun(id: string, handlers: SubscribeHandlers): () => v
  */
 export async function pingBackend(): Promise<boolean> {
   try {
-    const res = await fetch("/api/runs", { method: "GET" });
+    const res = await fetch(apiUrl("/api/runs"), { method: "GET" });
     return res.ok;
   } catch {
     return false;

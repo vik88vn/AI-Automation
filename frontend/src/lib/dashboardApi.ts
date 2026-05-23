@@ -6,6 +6,8 @@
 // through the /api proxy (dev) or VITE_API_TARGET (prod), same as lib/api.ts.
 // ─────────────────────────────────────────────────────────────────────────
 
+import { apiUrl } from "./apiBase";
+
 const AUTH_KEY = "ai-qa-deep-agent.auth.v1";
 
 export interface AuthTokens {
@@ -41,7 +43,7 @@ export class ApiError extends Error {
 
 async function authedFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAccessToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...init,
     headers: {
       "content-type": "application/json",
@@ -120,7 +122,7 @@ export const fetchActivity = (projectId: string) =>
 
 // Export endpoints return files; build a URL the browser can open/download.
 export const exportRunUrl = (runId: string, format: "csv" | "html") =>
-  `/api/runs/${runId}/export?format=${format}`;
+  apiUrl(`/api/runs/${runId}/export?format=${format}`);
 
 export const postRunToSlack = (runId: string) =>
   authedFetch<{ ok: boolean }>(`/api/runs/${runId}/slack`, { method: "POST" });

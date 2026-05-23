@@ -1,0 +1,13 @@
+# Keep the Docker build context small and avoid copying host artifacts.
+node_modules
+dist
+frontend
+.git
+.github
+reports
+examples
+*.log
+.env
+.env.*
+.DS_Store
+**/.DS_Store

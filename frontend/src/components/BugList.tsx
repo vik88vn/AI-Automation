@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Bug as BugIcon, ExternalLink, Wrench, Loader2, CheckCircle2 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { apiUrl } from "@/lib/apiBase";
 import type { Severity } from "@/lib/mockData";
 
 const SEVERITY_VARIANT: Record<
@@ -18,14 +19,34 @@ const SEVERITY_VARIANT: Record<
 
 const SETTINGS_KEY = "ai-qa-deep-agent.settings.v1";
 
-function readProjectRoot(): string {
+interface FixSettings {
+  projectRoot: string;
+  restartCommand: string;
+  skipRestart: boolean;
+  providerSettings: Record<string, string | undefined>;
+}
+
+function readFixSettings(): FixSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return "";
-    const parsed = JSON.parse(raw) as { projectRoot?: string };
-    return parsed.projectRoot ?? "";
+    if (!raw) return { projectRoot: "", restartCommand: "", skipRestart: false, providerSettings: {} };
+    const parsed = JSON.parse(raw) as Record<string, string | boolean | undefined>;
+    return {
+      projectRoot: (parsed.projectRoot as string) ?? "",
+      restartCommand: (parsed.restartCommand as string) ?? "",
+      skipRestart: Boolean(parsed.skipRestart),
+      providerSettings: {
+        preferred: (parsed.preferred as string) ?? "auto",
+        anthropicKey: parsed.anthropicKey as string | undefined,
+        anthropicModel: parsed.anthropicModel as string | undefined,
+        openaiKey: parsed.openaiKey as string | undefined,
+        openaiModel: parsed.openaiModel as string | undefined,
+        ollamaModel: parsed.ollamaModel as string | undefined,
+        ollamaBaseUrl: parsed.ollamaBaseUrl as string | undefined,
+      },
+    };
   } catch {
-    return "";
+    return { projectRoot: "", restartCommand: "", skipRestart: false, providerSettings: {} };
   }
 }
 
@@ -34,14 +55,14 @@ export function BugList() {
   const [fixingBugs, setFixingBugs] = useState<Record<string, "fixing" | "done" | "error">>({});
 
   const handleFix = async (bug: typeof bugs[0]) => {
-    const projectRoot = readProjectRoot();
-    if (!projectRoot) {
+    const fixSettings = readFixSettings();
+    if (!fixSettings.projectRoot) {
       alert("Set your project root path in Settings before using Fix.");
       return;
     }
     setFixingBugs((s) => ({ ...s, [bug.id]: "fixing" }));
     try {
-      const res = await fetch("/api/fix", {
+      const res = await fetch(apiUrl("/api/fix"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -56,8 +77,11 @@ export function BugList() {
             url: bug.url,
             evidence: bug.evidence,
           },
-          projectRoot,
+          projectRoot: fixSettings.projectRoot,
           targetUrl: bug.url,
+          restartCommand: fixSettings.restartCommand || undefined,
+          skipRestart: fixSettings.skipRestart,
+          providerSettings: fixSettings.providerSettings,
         }),
       });
       if (!res.ok) {
