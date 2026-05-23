@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FolderOpen, Key, Settings as SettingsIcon, X } from "lucide-react";
+import { Key, Settings as SettingsIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ProviderSettings } from "@/lib/api";
 
@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS: Required<ProviderSettings> = {
   ollamaBaseUrl: "",
   ollamaModel: "",
   projectRoot: "",
+  restartCommand: "",
+  skipRestart: false,
 };
 
 const ANTHROPIC_MODELS = [
@@ -261,6 +263,39 @@ export function SettingsDialog({ open, onClose, onSaved }: Props) {
               Absolute path to the project source code. Required for the "Fix Bug" feature —
               the agent reads and patches files here.
             </p>
+
+            <Field label="Restart cmd">
+              <input
+                type="text"
+                value={settings.restartCommand}
+                onChange={(e) => update("restartCommand", e.target.value)}
+                placeholder="npm start (auto-detected if empty)"
+                className="field-input"
+              />
+              <button
+                type="button"
+                className="ghost-reset"
+                onClick={() => update("restartCommand", "")}
+              >
+                reset
+              </button>
+            </Field>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              Command to restart the test app after patching. Run from project root.
+              Examples: <code className="bg-zinc-800/80 px-1 py-0.5 rounded">npm start</code>,{" "}
+              <code className="bg-zinc-800/80 px-1 py-0.5 rounded">node server.js</code>. Leave
+              empty to auto-detect from <code className="bg-zinc-800/80 px-1 py-0.5 rounded">package.json</code>.
+            </p>
+
+            <label className="flex items-center gap-2 text-xs text-zinc-300 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.skipRestart}
+                onChange={(e) => update("skipRestart", e.target.checked)}
+                className="accent-blue-500"
+              />
+              <span>Skip restart (my app uses hot-reload like nodemon)</span>
+            </label>
           </Section>
 
           {/* Ollama */}

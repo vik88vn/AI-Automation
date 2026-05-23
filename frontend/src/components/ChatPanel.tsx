@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Bot, ChevronDown, ChevronUp, MessageSquare, Send, Wrench } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Bot, ChevronDown, ChevronUp, MessageSquare, Send, Square, Wrench } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -38,6 +38,7 @@ export function ChatPanel() {
   const [isFixing, setIsFixing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const { bugs, testCases, status } = useStore();
   const activeRunId = useSessionStore((s) => s.activeRunId);
@@ -46,21 +47,26 @@ export function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const addMessage = useCallback((role: "user" | "agent", text: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { role, text, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) },
+    ]);
+  }, []);
+
+  const handleStop = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setIsLoading(false);
+    setIsFixing(false);
+    addMessage("agent", "Stopped.");
+  }, [addMessage]);
+
   if (status !== "completed" && status !== "failed") {
     return null;
   }
-
-  const formatTimestamp = () => {
-    const now = new Date();
-    return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
-  const addMessage = (role: "user" | "agent", text: string) => {
-    setMessages((prev) => [
-      ...prev,
-      { role, text, timestamp: formatTimestamp() },
-    ]);
-  };
 
   // Actually call /api/fix for each bug action
   const executeFixes = async (actions: ChatAction[]) => {
@@ -78,6 +84,9 @@ export function ChatPanel() {
     const fixBugIds = actions.filter((a) => a.type === "fix").map((a) => a.bugId);
 
     for (const bugId of fixBugIds) {
+      // Check if aborted between bugs
+      if (!abortRef.current || abortRef.current.signal.aborted) break;
+
       const bug = bugs.find((b) => b.id === bugId);
       if (!bug) {
         addMessage("agent", `Bug ${bugId} not found — skipping.`);
@@ -90,6 +99,7 @@ export function ChatPanel() {
         const res = await fetch("/api/fix", {
           method: "POST",
           headers: { "content-type": "application/json" },
+          signal: abortRef.current.signal,
           body: JSON.stringify({
             bug: {
               id: bug.id,
@@ -104,6 +114,8 @@ export function ChatPanel() {
             },
             projectRoot,
             targetUrl: bug.url,
+            restartCommand: settings.restartCommand,
+            skipRestart: Boolean(settings.skipRestart),
             providerSettings: {
               preferred: settings.preferred ?? "auto",
               anthropicKey: settings.anthropicKey,
@@ -146,6 +158,10 @@ export function ChatPanel() {
                 } else if (event.type === "fix_error") {
                   fixResult = `Failed to fix ${bugId}: ${event.message ?? "unknown error"}`;
                   running = false;
+                } else if (event.type === "fix_restarting") {
+                  // Surface restart progress so the user can see why a fix may
+                  // briefly appear stuck while the test app respawns.
+                  addMessage("agent", `(${bugId}) ${event.message ?? "restarting target app…"}`);
                 } else if (event.type === "fix_patching" || event.type === "fix_analyzing" || event.type === "fix_verifying") {
                   // Progress update — could show but keeping it simple
                 }
@@ -176,6 +192,9 @@ export function ChatPanel() {
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading || isFixing) return;
 
+    // Create a fresh AbortController for this entire chat + fix sequence
+    abortRef.current = new AbortController();
+
     addMessage("user", text.trim());
     setInput("");
     setIsLoading(true);
@@ -186,6 +205,7 @@ export function ChatPanel() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        signal: abortRef.current.signal,
         body: JSON.stringify({
           message: text.trim(),
           runId: activeRunId,
@@ -211,9 +231,14 @@ export function ChatPanel() {
       if (data.actions && data.actions.length > 0) {
         await executeFixes(data.actions);
       }
-    } catch {
-      addMessage("agent", "Failed to get a response. Make sure the backend is running and your API key is set in Settings.");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User clicked Stop — message already added by handleStop
+      } else {
+        addMessage("agent", "Failed to get a response. Make sure the backend is running and your API key is set in Settings.");
+      }
       setIsLoading(false);
+      setIsFixing(false);
     }
   };
 
@@ -340,13 +365,24 @@ export function ChatPanel() {
             disabled={isLoading || isFixing}
             className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 disabled:opacity-50 transition-colors"
           />
-          <button
-            type="submit"
-            disabled={isLoading || isFixing || !input.trim()}
-            className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <Send className="w-4 h-4" />
-          </button>
+          {isLoading || isFixing ? (
+            <button
+              type="button"
+              onClick={handleStop}
+              className="p-1.5 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+              title="Stop"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          )}
         </form>
       </div>
     </div>
