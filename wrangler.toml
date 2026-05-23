@@ -1,18 +1,26 @@
-# Minimal Cloudflare Pages configuration
-# For Cloudflare Pages deployment
+# Cloudflare Pages Configuration
+# Frontend deployment for AI QA Engineer
 
 name = "ai-qa-engineer"
+type = "javascript"
 compatibility_date = "2024-12-01"
+main = "frontend/dist/index.html"
 
-# Build configuration for Cloudflare Pages
+# Build configuration
 [build]
-command = "npm run build"
-cwd = "."
+command = "cd frontend && npm install && npm run build"
+watch_paths = ["frontend/src/**/*.tsx", "frontend/src/**/*.ts"]
 
-# Assets directory - where Vite outputs the build
+# Environment variables (development)
+[env.development]
+vars = { VITE_API_TARGET = "http://localhost:4310" }
+
+# Environment variables (production)
 [env.production]
-routes = [
-  { pattern = "example.com/*", zone_id = "your_zone_id" },
-]
-
 vars = { VITE_API_TARGET = "https://api.example.com" }
+
+# Pages-specific settings
+pages_build_caching = true
+
+# Deploy hooks (optional)
+# webhook_secret = "your-secret-here"
