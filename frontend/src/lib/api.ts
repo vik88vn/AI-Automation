@@ -23,6 +23,9 @@ export interface ProviderSettings {
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   projectRoot?: string;
+  // Auto-restart configuration for the bug fix agent.
+  restartCommand: string;
+  skipRestart: boolean;
 }
 
 export interface StartRunOptions {
