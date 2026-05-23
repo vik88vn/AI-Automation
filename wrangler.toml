@@ -1,0 +1,18 @@
+# Minimal Cloudflare Pages configuration
+# For Cloudflare Pages deployment
+
+name = "ai-qa-engineer"
+compatibility_date = "2024-12-01"
+
+# Build configuration for Cloudflare Pages
+[build]
+command = "npm run build"
+cwd = "."
+
+# Assets directory - where Vite outputs the build
+[env.production]
+routes = [
+  { pattern = "example.com/*", zone_id = "your_zone_id" },
+]
+
+vars = { VITE_API_TARGET = "https://api.example.com" }
