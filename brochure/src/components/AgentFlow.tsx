@@ -203,7 +203,7 @@ function buildEdges(): Edge[] {
     { id: 'e-report-dash', source: 'report', target: 'out-dash' },
     { id: 'e-report-export', source: 'report', target: 'out-export' },
     { id: 'e-report-int', source: 'report', target: 'out-integrations' },
-  ].map((e) => ({ ...e, animated: true, style: { stroke: '#10b981', strokeWidth: 1.6 } }));
+  ].map((e) => ({ ...e, animated: true, style: { stroke: '#3b82f6', strokeWidth: 1.6 } }));
 
   const fanOut: Edge[] = detectors.map((d) => ({
     id: `e-engine-${d.id}`,
@@ -250,7 +250,7 @@ export function AgentFlowCanvas() {
         <MiniMap
           pannable
           zoomable
-          nodeColor={(n) => (n.data as FlowNodeData)?.accent ?? '#10b981'}
+          nodeColor={(n) => (n.data as FlowNodeData)?.accent ?? '#3b82f6'}
           maskColor="rgba(9, 9, 11, 0.7)"
           style={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.08)' }}
         />
