@@ -1,28 +1,43 @@
-import { Zap } from 'lucide-react';
+import { useState } from 'react';
+import { Github, Menu, Bug } from 'lucide-react';
+import { REPO_URL } from '../site';
 
 export function Nav() {
+  const [open, setOpen] = useState(false);
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 glass border-b border-white/10">
-      <div className="container flex items-center justify-between h-16">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-            <Zap className="text-white" size={20} />
-          </div>
-          <span className="font-bold text-lg">AI QA Tester</span>
-        </div>
+    <header className={`nav${open ? ' open' : ''}`} id="nav">
+      <div className="container nav-inner">
+        <a className="nav-brand" href="#top" aria-label="AI QA Tester home" onClick={() => setOpen(false)}>
+          <span className="logo logo-sm" aria-hidden="true">
+            <Bug />
+          </span>
+          <span className="wordmark">AI QA <span className="accent">Tester</span></span>
+        </a>
 
-        <div className="hidden md:flex items-center gap-8">
-          <a href="#features" className="text-muted hover:text-white transition text-sm">Features</a>
-          <a href="#flow" className="text-muted hover:text-white transition text-sm">Pipeline</a>
-          <a href="#how" className="text-muted hover:text-white transition text-sm">How It Works</a>
-          <a href="#pricing" className="text-muted hover:text-white transition text-sm">Pricing</a>
-        </div>
+        <nav className="nav-links" aria-label="Primary" onClick={() => setOpen(false)}>
+          <a className="navlink" href="#features">Features</a>
+          <a className="navlink" href="#pipeline">Pipeline</a>
+          <a className="navlink" href="#detectors">Detectors</a>
+          <a className="navlink" href="#your-data">Your data</a>
+          <a className="navlink" href="#get-started">Get Started</a>
+        </nav>
 
-        <div className="flex gap-3">
-          <button className="btn btn-secondary text-sm px-4 py-2">Sign In</button>
-          <button className="btn btn-primary text-sm px-4 py-2">Get Started</button>
+        <div className="nav-cta">
+          <a className="btn btn-primary" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+            <Github className="icon-sm" size={16} />
+            <span className="hide-sm">GitHub</span>
+          </a>
+          <button
+            className="nav-toggle"
+            aria-label="Toggle menu"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <Menu className="icon" />
+          </button>
         </div>
       </div>
-    </nav>
+    </header>
   );
 }

@@ -1,59 +1,44 @@
-import { Github, Twitter, Linkedin } from 'lucide-react';
+import { Bug } from 'lucide-react';
+import { REPO_URL, CONTACT_EMAIL } from '../site';
 
 export function Footer() {
   return (
-    <footer className="py-16 border-t border-white/10">
+    <footer className="footer">
       <div className="container">
-        <div className="grid grid-cols-4 gap-8 mb-12">
-          <div>
-            <h4 className="font-bold mb-4">Product</h4>
-            <ul className="space-y-2">
-              <li><a href="#" className="text-muted hover:text-white transition">Features</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">Pricing</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">Security</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">API Docs</a></li>
-            </ul>
+        <div className="footer-top">
+          <div className="footer-brand">
+            <a className="nav-brand" href="#top">
+              <span className="logo logo-sm" aria-hidden="true"><Bug /></span>
+              <span className="wordmark">AI QA <span className="accent">Tester</span></span>
+            </a>
+            <p>
+              The open-source AI QA agent that explores your web app and finds bugs across
+              eight categories. Built with Playwright and React. Bring your own AI key.
+            </p>
           </div>
-          <div>
-            <h4 className="font-bold mb-4">Company</h4>
-            <ul className="space-y-2">
-              <li><a href="#" className="text-muted hover:text-white transition">About</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">Blog</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">Contact</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">Status</a></li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-bold mb-4">Legal</h4>
-            <ul className="space-y-2">
-              <li><a href="#" className="text-muted hover:text-white transition">Privacy</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">Terms</a></li>
-              <li><a href="#" className="text-muted hover:text-white transition">License</a></li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-bold mb-4">Follow</h4>
-            <div className="flex gap-4">
-              <a href="#" className="text-muted hover:text-white transition">
-                <Github size={20} />
-              </a>
-              <a href="#" className="text-muted hover:text-white transition">
-                <Twitter size={20} />
-              </a>
-              <a href="#" className="text-muted hover:text-white transition">
-                <Linkedin size={20} />
-              </a>
+          <div className="footer-cols">
+            <div className="footer-col">
+              <h4>Product</h4>
+              <a href="#features">Features</a>
+              <a href="#pipeline">Pipeline</a>
+              <a href="#detectors">Detectors</a>
+              <a href="#your-data">Your data</a>
+            </div>
+            <div className="footer-col">
+              <h4>Open source</h4>
+              <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub repo</a>
+              <a href={`${REPO_URL}/blob/main/README.md`} target="_blank" rel="noopener noreferrer">Documentation</a>
+              <a href={`${REPO_URL}/blob/main/LICENSE`} target="_blank" rel="noopener noreferrer">MIT License</a>
+            </div>
+            <div className="footer-col">
+              <h4>Contact</h4>
+              <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
             </div>
           </div>
         </div>
-
-        <div className="border-t border-white/10 pt-8 flex items-center justify-between">
-          <p className="text-muted text-sm">
-            © 2026 AI QA Tester. All rights reserved.
-          </p>
-          <p className="text-muted text-sm">
-            Made with ❤️ by <a href="#" className="hover:text-white transition">the team</a>
-          </p>
+        <div className="footer-bottom">
+          <span>© 2026 AI QA Tester. All rights reserved.</span>
+          <span>Not affiliated with Anthropic, OpenAI or Ollama. &ldquo;Claude&rdquo; is a trademark of Anthropic.</span>
         </div>
       </div>
     </footer>

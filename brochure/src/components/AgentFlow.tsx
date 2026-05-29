@@ -203,7 +203,7 @@ function buildEdges(): Edge[] {
     { id: 'e-report-dash', source: 'report', target: 'out-dash' },
     { id: 'e-report-export', source: 'report', target: 'out-export' },
     { id: 'e-report-int', source: 'report', target: 'out-integrations' },
-  ].map((e) => ({ ...e, animated: true, style: { stroke: '#6366f1', strokeWidth: 1.6 } }));
+  ].map((e) => ({ ...e, animated: true, style: { stroke: '#10b981', strokeWidth: 1.6 } }));
 
   const fanOut: Edge[] = detectors.map((d) => ({
     id: `e-engine-${d.id}`,
@@ -226,53 +226,35 @@ function buildEdges(): Edge[] {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function AgentFlow() {
+/** The interactive pipeline canvas. Designed to sit inside a `.frame`. */
+export function AgentFlowCanvas() {
   const nodes = useMemo(buildNodes, []);
   const edges = useMemo(buildEdges, []);
 
   return (
-    <section id="flow" className="py-20">
-      <div className="container">
-        <div className="text-center mb-12">
-          <span className="badge mb-4">Interactive Pipeline</span>
-          <h2 className="heading-md gradient-text mb-4">Inside the QA Agent</h2>
-          <p className="text-muted text-lg">
-            Drag, zoom, and explore how a single URL flows through 8 parallel detectors into actionable reports.
-          </p>
-        </div>
-
-        <div
-          className="glass rounded-xl overflow-hidden"
-          style={{ height: 560, width: '100%' }}
-        >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.12 }}
-            minZoom={0.2}
-            maxZoom={1.5}
-            nodesConnectable={false}
-            edgesFocusable={false}
-            defaultEdgeOptions={{ type: 'smoothstep' }}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#3f3f46" />
-            <Controls showInteractive={false} />
-            <MiniMap
-              pannable
-              zoomable
-              nodeColor={(n) => (n.data as FlowNodeData)?.accent ?? '#6366f1'}
-              maskColor="rgba(9, 9, 14, 0.7)"
-              style={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.08)' }}
-            />
-          </ReactFlow>
-        </div>
-
-        <p className="text-muted text-center text-xs mt-4">
-          Tip: scroll to zoom · drag the canvas to pan · drag any node to rearrange
-        </p>
-      </div>
-    </section>
+    <div className="flow-wrap">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.14 }}
+        minZoom={0.2}
+        maxZoom={1.5}
+        nodesConnectable={false}
+        edgesFocusable={false}
+        defaultEdgeOptions={{ type: 'smoothstep' }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#27272a" />
+        <Controls showInteractive={false} />
+        <MiniMap
+          pannable
+          zoomable
+          nodeColor={(n) => (n.data as FlowNodeData)?.accent ?? '#10b981'}
+          maskColor="rgba(9, 9, 11, 0.7)"
+          style={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.08)' }}
+        />
+      </ReactFlow>
+    </div>
   );
 }

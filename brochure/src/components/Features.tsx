@@ -1,88 +1,59 @@
-import {
-  AlertTriangle,
-  Eye,
-  Lock,
-  Zap,
-  BarChart3,
-  Accessibility,
-  Search,
-} from 'lucide-react';
+import { Bot, Bug, Lock, Accessibility, Gauge, Wrench } from 'lucide-react';
 
 const features = [
   {
-    icon: AlertTriangle,
-    title: 'Network Failures',
-    description: 'Detects failed API calls, timeouts, and connection errors before they impact users.',
-    color: 'from-orange-500 to-red-500',
+    icon: Bot,
+    title: 'Autonomous exploration',
+    body: 'An AI agent navigates your app like a real user — clicking, filling forms and following flows — discovering what to test on its own.',
+  },
+  {
+    icon: Bug,
+    title: 'Eight bug detectors',
+    body: 'Network, security, accessibility, performance, race conditions, auth, validation and SEO — all run in parallel on every pass.',
   },
   {
     icon: Lock,
-    title: 'Security Vulnerabilities',
-    description: 'Identifies XSS, CSRF, injection attacks, and missing security headers.',
-    color: 'from-red-500 to-pink-500',
+    title: 'Security probing',
+    body: 'Reflects XSS payloads, checks CSRF tokens, scans responses for leaked secrets, and flags missing security headers.',
   },
   {
     icon: Accessibility,
-    title: 'Accessibility Issues',
-    description: 'Finds missing alt text, low contrast ratios, and keyboard navigation problems.',
-    color: 'from-purple-500 to-indigo-500',
+    title: 'Accessibility & SEO',
+    body: 'Catches missing alt text, low contrast and keyboard traps, plus missing titles, meta tags and broken internal links.',
   },
   {
-    icon: Zap,
-    title: 'Performance Degradation',
-    description: 'Measures CLS, LCP, and FID to catch slow page loads and layout shifts.',
-    color: 'from-yellow-500 to-orange-500',
+    icon: Gauge,
+    title: 'Web vitals',
+    body: 'Measures CLS, LCP and FID on real navigations so you see layout shift and slow paints before your users feel them.',
   },
   {
-    icon: Eye,
-    title: 'Race Conditions',
-    description: 'Detects timing-dependent failures and asynchronous state issues.',
-    color: 'from-blue-500 to-cyan-500',
-  },
-  {
-    icon: BarChart3,
-    title: 'Authentication Gaps',
-    description: 'Tests login flows, token expiration, and session management edge cases.',
-    color: 'from-green-500 to-emerald-500',
-  },
-  {
-    icon: AlertTriangle,
-    title: 'Validation Bypass',
-    description: 'Attempts to submit invalid data and finds form validation weaknesses.',
-    color: 'from-pink-500 to-rose-500',
-  },
-  {
-    icon: Search,
-    title: 'SEO & Meta Issues',
-    description: 'Checks for missing titles, descriptions, broken links, and unoptimized images.',
-    color: 'from-teal-500 to-cyan-500',
+    icon: Wrench,
+    title: 'AI chat & auto-fix',
+    body: 'Ask about any bug, then let the agent patch your source and re-verify — using your own model, on your own machine.',
   },
 ];
 
 export function Features() {
   return (
-    <section className="py-20">
+    <section id="features">
       <div className="container">
-        <div className="text-center mb-16">
-          <h2 className="heading-md gradient-text mb-4">Comprehensive Bug Detection</h2>
-          <p className="text-muted text-lg">
-            Detect 8+ categories of bugs automatically across your web application
+        <div className="section-head reveal">
+          <span className="eyebrow">Everything in one run</span>
+          <h2>A complete QA cockpit</h2>
+          <p>
+            Six capabilities that turn a single URL into a thorough, evidence-backed
+            bug report — without you writing a single test case.
           </p>
         </div>
-
-        <div className="grid grid-cols-2 gap-6">
-          {features.map((feature, idx) => {
-            const Icon = feature.icon;
+        <div className="features-grid">
+          {features.map((f) => {
+            const Icon = f.icon;
             return (
-              <div key={idx} className="glass p-6 rounded-lg hover:bg-opacity-10 transition-all">
-                <div
-                  className={`w-12 h-12 rounded-lg bg-gradient-to-br ${feature.color} p-2.5 mb-4 flex items-center justify-center`}
-                >
-                  <Icon size={24} className="text-white" />
-                </div>
-                <h3 className="heading-sm mb-2">{feature.title}</h3>
-                <p className="text-muted text-sm">{feature.description}</p>
-              </div>
+              <article className="feature reveal" key={f.title}>
+                <span className="f-icon"><Icon className="icon" /></span>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </article>
             );
           })}
         </div>

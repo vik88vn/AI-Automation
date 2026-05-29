@@ -1,50 +1,49 @@
-import { ArrowRight, Zap } from 'lucide-react';
+import { Github, ArrowRight } from 'lucide-react';
+import { REPO_URL } from '../site';
+import { AgentFlowCanvas } from './AgentFlow';
 
 export function Hero() {
   return (
-    <section className="flex flex-col items-center justify-center min-h-screen pt-20 pb-20">
-      <div className="container text-center">
-        <div className="mb-8">
-          <span className="badge">
-            <Zap className="inline mr-2" size={16} />
-            AI-Powered QA Testing
-          </span>
-        </div>
-
-        <h1 className="heading-lg gradient-text mb-6">
-          Catch Bugs Before Your Users Do
+    <section className="hero">
+      <div className="container">
+        <span className="eyebrow">Open-source AI QA agent</span>
+        <h1>
+          Catch bugs before<br />your users do, <span className="accent">automatically</span>.
         </h1>
-
-        <p className="text-muted text-xl max-w-2xl mx-auto mb-8">
-          Intelligent automated testing that detects network failures, security vulnerabilities,
-          accessibility gaps, performance issues, and validation bugs—all without writing a single test case.
+        <p className="lede">
+          AI QA Tester explores your live web app like a real user, then runs eight
+          specialized detectors — network, security, accessibility, performance and
+          more — powered by <strong>your own AI key</strong>. No test scripts required.
         </p>
 
-        <div className="flex gap-4 justify-center flex-wrap mb-16">
-          <button className="btn btn-primary flex items-center gap-2">
-            Start Testing Now
-            <ArrowRight size={20} />
-          </button>
-          <button className="btn btn-secondary">
-            View Live Demo
-          </button>
+        <div className="hero-cta">
+          <a className="btn btn-primary btn-lg" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+            <Github className="icon-sm" size={18} />
+            View on GitHub
+          </a>
+          <a className="btn btn-ghost btn-lg" href="#features">
+            See what&rsquo;s inside
+            <ArrowRight className="icon-sm" size={18} />
+          </a>
         </div>
+        <p className="hero-sub">
+          Open source · bring your own AI key (Claude, OpenAI or local Ollama) · runs on your machine.
+        </p>
 
-        {/* Feature highlights */}
-        <div className="grid grid-cols-3 gap-8 mt-16">
-          <div className="glass p-6 rounded-lg">
-            <div className="text-2xl font-bold mb-2 gradient-text">8+</div>
-            <div className="text-sm text-muted">Bug Detectors</div>
-          </div>
-          <div className="glass p-6 rounded-lg">
-            <div className="text-2xl font-bold mb-2 gradient-text">100%</div>
-            <div className="text-sm text-muted">Automated</div>
-          </div>
-          <div className="glass p-6 rounded-lg">
-            <div className="text-2xl font-bold mb-2 gradient-text">5 min</div>
-            <div className="text-sm text-muted">Full Test Run</div>
+        <div className="hero-shot reveal" id="pipeline">
+          <div className="frame">
+            <div className="frame-bar">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+              <span className="url">ai-qa-tester — agent pipeline</span>
+            </div>
+            <AgentFlowCanvas />
           </div>
         </div>
+        <p className="hero-sub">
+          Interactive: scroll to zoom, drag the canvas to pan, drag any node to rearrange.
+        </p>
       </div>
     </section>
   );
