@@ -1,5 +1,5 @@
 import { Bug } from 'lucide-react';
-import { REPO_URL, CONTACT_EMAIL } from '../site';
+import { REPO_URL, ISSUES_URL } from '../site';
 
 export function Footer() {
   return (
@@ -32,7 +32,8 @@ export function Footer() {
             </div>
             <div className="footer-col">
               <h4>Contact</h4>
-              <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+              <a href={ISSUES_URL} target="_blank" rel="noopener noreferrer">GitHub Issues</a>
+              <a href={`${REPO_URL}/discussions`} target="_blank" rel="noopener noreferrer">Discussions</a>
             </div>
           </div>
         </div>
